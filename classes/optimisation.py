@@ -75,7 +75,7 @@ class Optimisation():
 
             raise(ValueError("Observed Timepoints and Observed Y must be the same size."))
 
-    def optimizing_neg_marginal_loglikelihood(self, start_values, method = 'L-BFGS-B', bounds = ((1e-10, None), (None, None), (1e-10, None), (None, None)), cholesky_decompose = True):
+    def optimizing_neg_marginal_loglikelihood(self, start_values, method = 'L-BFGS-B', bounds = ((1e-10, None), (None, None), (1e-10, None), (1e-10, None)), cholesky_decompose = True):
         ''' Minimises the negative marginal log likelihood with respect to the Hyper Parameters of the OU Function Matrix.
             The parameters estimated are alpha, beta and variance respectively which are returned by the optimizer.
 
@@ -267,7 +267,10 @@ class Optimisation():
         else:
             raise(ValueError('method input must be a string.'))
 
-        return res, np.array(history)
+        if callback:
+            return res, np.array(history)
+        else:
+            return res
 
 
 
