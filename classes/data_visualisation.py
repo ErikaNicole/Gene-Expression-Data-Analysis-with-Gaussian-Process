@@ -9,7 +9,6 @@ from mpl_toolkits import mplot3d
 
 sns.set_style("whitegrid")
 
-# todo: update plots such that the plot names change with respect to the inputs in init?
 # todo: include trace in the returns, to be able to access the data the plot came from.
 
 class Visualisation_GP():
@@ -133,14 +132,87 @@ class Visualisation_GP():
         for i in range(1,number_of_traces + 1):
             ax[0].plot(timepoints, prior_trace[:,i])
         ax[0].fill_between(timepoints, + prior_confidence_bounds, - prior_confidence_bounds, alpha=0.2)
-        ax[0].set(title ="Plot of OU Prior Trace(s)", ylabel = "Expression", xlabel = "Time", ylim=[-3.5,3.5])
+        if self.oscillatory:
+            ax[0].set(title ="Plot of OUosc Prior Trace(s)", ylabel = "Expression", xlabel = "Time", ylim=[-3.5,3.5])
+        else:
+            ax[0].set(title ="Plot of OU Prior Trace(s)", ylabel = "Expression", xlabel = "Time", ylim=[-3.5,3.5])
         #2nd Plot
         for i in range(2,number_of_traces + 2):
             ax[1].plot(timepoints, posterior_trace[:,i])
         ax[1].scatter(self.observed_timepoints, self.observed_y, color = 'red', alpha = 0.5, linewidths = 0.5)
         ax[1].plot(timepoints, posterior_trace[:,1], color = 'black', ls ='--')
-        ax[1].set(title ="Plot of OU Posterior Trace(s)", ylabel = "Expression", xlabel = "Time", ylim=[-3.5,3.5])
+        if self.oscillatory:
+            ax[1].set(title ="Plot of OUosc Posterior Trace(s)", ylabel = "Expression", xlabel = "Time", ylim=[-3.5,3.5])
+        else:
+            ax[1].set(title ="Plot of OU Posterior Trace(s)", ylabel = "Expression", xlabel = "Time", ylim=[-3.5,3.5])
         ax[1].fill_between(timepoints, posterior_trace[:,1] + posterior_confidence_bounds, posterior_trace[:,1] - posterior_confidence_bounds, alpha=0.2)
+
+        return Fig, prior_trace, posterior_trace
+
+    def gp_ou_trace_3subplot(self, duration, number_of_observations, number_of_traces):
+        ''' Generate a subplot for any number of samples from the Ornstein-Uhlenbeck (OU) process.
+            Equivalent to plotting a number of samples from the Prior f* ~ N(0, K(X*, X*)) and Posterior f* ~ N(f*_mean, f*_covariance).
+        For reference, see for example the book Rasmussen (2006) 'Gaussian Processes for Machine learning'
+
+        Parameters:
+        -----------
+
+        duration : float
+            time duration/length of each trace that should be generated.
+
+        number_of_observations : integer
+            how many time points should be sampled from the process.
+
+        number_of_traces: integer
+            how many traces should be plotted.
+
+        cholesky_decompose : boolean
+            Default is True: constructs predictor and trains model using the cholesky decomposition of the Covariance Matrix.
+            This is computationally more efficient and follows the Algorithm 2.1 as detailed in Rasmussen & Williams, 2006.
+
+        Returns:
+        --------
+
+        Fig : plot
+            This subplot has two plots, where the first plot contains Prior Traces,
+            and the second contains the Posterior Traces, Predictor and Observed Points.
+        '''
+
+        timepoints = np.linspace(0.0,duration,number_of_observations)
+
+        original_trace = self.observed_y
+        prior_trace = self.GP.generate_prior_ou_trace(duration, number_of_observations, number_of_traces)
+        posterior_trace = self.GP.generate_predictor_and_posterior_ou_trace(self.observed_timepoints, self.observed_y, duration, number_of_observations, number_of_traces, self.cholesky_decompose, confidence_bounds = True)
+
+        prior_confidence_bounds = 1.96 * np.sqrt(np.diag(abs(self.GP.cov_matrix_ou(timepoints, timepoints))))
+        posterior_confidence_bounds = posterior_trace[1]
+        posterior_trace = posterior_trace[0]
+
+        Fig, ax = plt.subplots(ncols=3, nrows=1, constrained_layout=True, sharey= True)
+        #0st Plot
+        ax[0].plot(self.observed_timepoints, original_trace)
+        ax[0].set(title = 'Plot of Original Trace', ylabel = "Expression", xlabel = 'Time', ylim=[-3.5,3.5])
+
+        #1st Plot
+        ax[1].plot(timepoints, np.zeros(len(timepoints)), color = 'black', ls ='--')
+        for i in range(1,number_of_traces + 1):
+            ax[1].plot(timepoints, prior_trace[:,i])
+        ax[1].fill_between(timepoints, + prior_confidence_bounds, - prior_confidence_bounds, alpha=0.2)
+        if self.oscillatory:
+            ax[1].set(title ="Plot of OUosc Prior Trace(s)", ylabel = "Expression", xlabel = "Time", ylim=[-3.5,3.5])
+        else:
+            ax[1].set(title ="Plot of OU Prior Trace(s)", ylabel = "Expression", xlabel = "Time", ylim=[-3.5,3.5])
+
+        #2nd Plot
+        for i in range(2,number_of_traces + 2):
+            ax[2].plot(timepoints, posterior_trace[:,i])
+        ax[2].scatter(self.observed_timepoints, self.observed_y, color = 'red', alpha = 0.5, linewidths = 0.5)
+        ax[2].plot(timepoints, posterior_trace[:,1], color = 'black', ls ='--')
+        if self.oscillatory:
+            ax[2].set(title ="Plot of OUosc Posterior Trace(s)", ylabel = "Expression", xlabel = "Time", ylim=[-3.5,3.5])
+        else:
+            ax[2].set(title ="Plot of OU Posterior Trace(s)", ylabel = "Expression", xlabel = "Time", ylim=[-3.5,3.5])
+        ax[2].fill_between(timepoints, posterior_trace[:,1] + posterior_confidence_bounds, posterior_trace[:,1] - posterior_confidence_bounds, alpha=0.2)
 
         return Fig, prior_trace, posterior_trace
 
@@ -460,9 +532,14 @@ class Visualisation_ModelSelection():
             results of control cells and observed cells.
         """
 
-        Plot, ax = plt.subplots(ncols=3, nrows=1, constrained_layout=True)
+        Plot1, ax = plt.subplots(ncols=3, nrows=1, constrained_layout=True, sharex = True)
+        # max_value = max(max(observed_LLRs), max(control_LLRs))
+        # min_value = min(min(observed_LLRs), min(control_LLRs))
+        # binwidth = 0.5
+
         # 1st plot of observed oscillating cells
         ax[0].hist(observed_LLRs)
+        #ax[0].hist(observed_LLRs, bins = np.arange(min_value, max_value + binwidth, binwidth))
         ax[0].set(title = "Observed LLRs Distribution", ylabel = "Frequency", xlabel = "LLR")
         # 2nd plot of control non-oscillating cells
         ax[1].hist(control_LLRs)
@@ -470,21 +547,28 @@ class Visualisation_ModelSelection():
         # 3rd plot of null hypothesis - population of non-oscillating cells
         ax[2].hist(synthetic_LLRs)
         ax[2].set(title = "Synthetic LLRs Distribution", ylabel = "Frequency", xlabel = "LLR")
+        plt.show()
 
-        return Plot
+        # Second plot shows densities overlapping
+        # Plot2 = plt.figure("Densities of Control (blue), Observed (green), and Synthetic (red)")
+        # plt.title("Densities of Control (blue), Observed (green), and Synthetic (red)")
+        # kwargs = dict(histtype='stepfilled', alpha=0.3, bins=np.arange(min_value, max_value + binwidth, binwidth))
+        # plt.hist(control_LLRs, **kwargs)
+        # plt.hist(observed_LLRs, **kwargs)
+        # plt.hist(synthetic_LLRs, **kwargs)
+        # plt.show()
+
+        return Plot1
 
     def q_values_plot(self, LLRs, q_est, control_q_value):
         """
         Q-values depends on LLR of data we can plot the following.
 
-        At an FDR of 5%, 10/20 cells would pass the LLR threshold and are classified as oscillatory.
-        # This is completely correct since 10 are the controlled cells and the other 10 come from an oscillatory sample.
+        At an FDR of 5%, ?/? cells would pass the LLR threshold and are classified as oscillatory.
+        If the FDR is made less stringent at 10%, the pass rate could change significantly. It can easily be seen from the plot.
 
-        # If the FDR is made less stringent at 10%, it still would have the same pass rate. It can easily be seen from the plot.
-
-        # Instead by controlling at a cutoff of 5% we ensure that the rate of significant features which are truly null is more
-        # realistic. For example a q value of 0.0318 is the expected proportion of false positives incurred if we called the gene signficant.
-
+        By controlling at a cutoff of 5% we ensure that the rate of significant features which are truly null is more
+        realistic. For example a q value of 0.0318 is the expected proportion of false positives incurred if we called the gene signficant.
 
         Returns:
         ------
@@ -493,7 +577,10 @@ class Visualisation_ModelSelection():
             Plot showing q-value distribution of observed cells and control cells.
 
         """
+
         Fig = plt.figure('q-values plot')
+        plt.ylabel("Q-Values")
+        plt.xlabel("Threshold")
         plt.scatter(np.sort(LLRs), q_est)
         plt.axhline(control_q_value, color = 'red')
         plt.ylim([-0.1,1])
@@ -502,8 +589,6 @@ class Visualisation_ModelSelection():
         return Fig
 
 class Visualisation_DataPrep():
-
-    #todo: not perfect, here the detrending parameters are kept fixed but could be kept as inputs if thought necessary.
 
     def __init__(self, detrending_alpha = 0.0001, detrending_variance = 1.0, detrending_noise = 0.0001):
         self.alpha = detrending_alpha

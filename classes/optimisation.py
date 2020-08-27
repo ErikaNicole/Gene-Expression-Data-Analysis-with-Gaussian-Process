@@ -139,27 +139,27 @@ class Optimisation():
             Of particular importance:
             fun: specifies the optimized negative log marginal likelihood for the training data specified and the chosen
                  hyper parameters.
-            x:   estimated hyper parameters, alpha, beta and the variance respectively.
+            x:   estimated hyper parameters, alpha, beta, variance and noise respectively.
 
             To extract: hyperparameters estimates from OptimizeResult Object use .x
         '''
 
         if len(start_values) != 4:
-            raise(ValueError('start_values input must be of size 4 for alpha, beta, variance and noise respectively.'))
+            raise(ValueError('start_values input must be of size 4 for alpha, beta, variance and noise respectively (if non-oscillatory, select beta = 0.0).'))
 
         if isinstance(method, str):
             if method == 'L-BFGS-B' or method == 'TNC' or method == 'Powell' or method == 'SLSQP':
                 res = minimize(self.neg_marginal_loglikelihood, args = (cholesky_decompose), x0 = start_values, bounds = bounds, method = method)
             else:
                 if bounds != None:
-                    raise(ValueError('Bounds cannot be passed with this method.'))
+                    raise(ValueError('bounds cannot be passed with this method.'))
                 res = minimize(self.neg_marginal_loglikelihood, args = (cholesky_decompose), x0 = start_values, method = method)
         else:
             raise(ValueError('method input must be a string.'))
         return res
 
     # Hyper Parameter Estimation (With Callback & History)
-    def optimizing_neg_marginal_loglikelihood_callback(self, start_values, method = 'L-BFGS-B', bounds = ((1e-10, None), (None, None), (1e-10, None), (None, None)), cholesky_decompose = True, callback = True):
+    def optimizing_neg_marginal_loglikelihood_callback(self, start_values, method = 'L-BFGS-B', bounds = ((1e-10, None), (None, None), (1e-10, None), (1e-10, None)), cholesky_decompose = True, callback = True):
         ''' Minimises the negative marginal log likelihood with respect to the Hyper Parameters of the OU Function Matrix.
             The parameters estimated are alpha, beta and variance respectively which are returned by the optimizer.
 
@@ -217,7 +217,6 @@ class Optimisation():
 
         Returns:
         --------
-        todo: check the convention for when returning functions
 
         res : OptimizeResult Object
             Returns the object of an optimization run, for more details on each outputs meaning check out:

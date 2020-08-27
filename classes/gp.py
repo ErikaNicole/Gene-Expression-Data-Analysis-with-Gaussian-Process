@@ -36,7 +36,7 @@ class GP():
         self.oscillatory = oscillatory
         return
 
-    def cov_matrix_ou(self, x1, x2):
+    def cov_matrix_ou(self, x1, x2, jitter = 0.0001):
         ''' Construct covariance matrix for the Ornstein-Uhlenbeck (OU) process.
             Defined by the Covariance Function of the OU process in Rasmussen (2006).
 
@@ -67,7 +67,7 @@ class GP():
                 else:
                     oscillatory_term = 1
                 Covariate_Matrix_OU[i, j] = self.variance * np.exp(-self.alpha * abs(x1[i] - x2[j]))*oscillatory_term
-        return Covariate_Matrix_OU
+        return Covariate_Matrix_OU + np.eye(Nx1, Nx2)*jitter
 
     def generate_prior_ou_trace(self, duration, number_of_observations = 500, number_of_traces = 1):
         ''' Generate a sample from the Ornstein-Uhlenbeck (OU) process.

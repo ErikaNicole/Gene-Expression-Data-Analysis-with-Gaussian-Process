@@ -9,7 +9,7 @@ import classes.optimisation as optimisation
 import classes.gillespie as gillespie
 
 # todo: Currently holding a Model Selection thought: shall I have control cells as inputs too such that they can help balance
-#       the model selection process? Or, if I run two separate model selections for control vs observed data does that
+#       the model selection process? Or, if I run two separate model selections for control vs observed data does that change inference?
 
 class ModelSelection():
 
@@ -101,9 +101,11 @@ class ModelSelection():
         synthetic_cells = np.zeros((number_of_observed_cells, number_of_observations, number_of_synth_cell_per_observed_cell))
         for cell in range(number_of_observed_cells):
             self.gp = gp.GP(alpha = par_cell_non_osc[0,cell], beta = par_cell_non_osc[1,cell], variance = par_cell_non_osc[2,cell], noise = par_cell_non_osc[3, cell], oscillatory = False)
-            synthetic_data = self.gp.generate_prior_ou_trace(duration = 100, number_of_observations = number_of_observations, number_of_traces = number_of_synth_cell_per_observed_cell)[:,1:number_of_synth_cell_per_observed_cell+1]
+            synthetic_data = self.gp.generate_prior_ou_trace(duration = observed_timepoints[-1], number_of_observations = number_of_observations, number_of_traces = number_of_synth_cell_per_observed_cell)[:,1:number_of_synth_cell_per_observed_cell+1]
             synthetic_cells[cell, :, :] = np.array([synthetic_data])
-            print("Completed Generation of Synthetic Cells of Observed Cell", cell + 1)
+            # print("Completed Generation of Synthetic Cells of Observed Cell", cell + 1)
+
+        print("Completed Generation of Synthetic Cells for all", number_of_observed_cells," Observed Cell")
 
         # Third Loop Deals With Calculating LLR for each new Synthetic Cell
 
@@ -117,7 +119,9 @@ class ModelSelection():
                 self.optim_osc = optimisation.Optimisation(oscillatory = True, observed_timepoints = observed_timepoints, observed_y = synthetic_cells[cell,:,synth_cell])
                 neg_llik_synth_osc = self.optim_osc.optimizing_neg_marginal_loglikelihood(initial_guess).fun
                 llikelihood_ratio_synth_cells[i] = 2*((-neg_llik_synth_osc) - (-neg_llik_synth_non_osc))
-            print("Completed Fitting of OUosc and OU GP on Synthetic, Storing Results and Calculating LLR from Observed Cell", cell + 1)
+            # print("Completed Fitting of OUosc and OU GP on Synthetic, Storing Results and Calculating LLR from Observed Cell", cell + 1)
+
+        print("Completed Fitting of OUosc and OU GP on", number_of_synthetic_cells," Synthetic Cells, storing their results and calculating LLRs")
 
         # If Statement Deals with Normalising LLRs
 
@@ -201,6 +205,11 @@ class ModelSelection():
     def estimation_of_proportion_of_non_osc_cells(self, LLRs, pi_0):
         """
         This function carries out the fitting of the natural cubic spline with 3 degrees of freedom of pi_0(lambda).
+        The library csaps is used, more can be found at: https://csaps.readthedocs.io/en/latest/tutorial.html
+        Note that The smoothing parameter should be in range [0,1], where bounds are:
+                0: The smoothing spline is the least-squares straight line fit to the data
+                1: The cubic spline interpolant with natural boundary condition
+
         Hence, to 'choose' the estimate of pi_0 the following is necessary:
 
                                         pi_0 = fuction(min(lambda))
@@ -232,11 +241,11 @@ class ModelSelection():
 
         max_LLR = max(max(LLRs[0]), max(LLRs[1]))
         min_LLR = min(min(LLRs[0]), min(LLRs[1]))
+        # min_LLR = 0.0 # Temporary fix for -ve LLRs issues.
         min_LLR = max_LLR - 0.9*(max_LLR - min_LLR)
         tuning_parameters = np.linspace(min_LLR, max_LLR, 50)
 
-        #todo: update class to CubicSmoothingSpline
-        splinefit = csaps.UnivariateCubicSmoothingSpline(tuning_parameters, pi_0, smooth = 0.85)
+        splinefit = csaps.CubicSmoothingSpline(tuning_parameters, pi_0, smooth = 0.5)
         x_test = np.linspace(min_LLR, max_LLR, 50)
         y_test = splinefit(x_test)
         results = ((x_test, y_test))
@@ -246,8 +255,8 @@ class ModelSelection():
         plt.title('Tuning Parameter (Lambda) Vs Pi_0')
         plt.ylabel('Pi0')
         plt.xlabel('Tuning Parameter (Lambda)')
-        plt.ylim([0,1])
-        plt.xlim([0.0, max_LLR + 1])
+        plt.ylim([0,None])
+        plt.xlim([min_LLR - 1, max_LLR + 1])
         plt.scatter(results[0,0], results[1,0], color = 'red')
         plt.plot(tuning_parameters, pi_0, 'o', x_test, y_test, '-')
 
@@ -374,7 +383,7 @@ class ModelSelection():
 
         return LLRs, q_values, DistributionPlot, QValuesPlot
 
-    def model_selection_with_control(self, observed_timepoints, control_cells, observed_cells, number_of_synthetic_cells, control_q_value = 0.05, initial_guess = [0.001, 0.0, 0.001, 0.0]):
+    def model_selection_with_control(self, observed_timepoints, control_cells, observed_cells, number_of_synthetic_cells, control_q_value = 0.05, initial_guess = [0.001, 0.0, 0.001, 0.001]):
         """
         Function to run the whole model_selection process.
 
@@ -454,12 +463,643 @@ class ModelSelection():
 
         return LLRs, q_values, DistributionPlot, QValuesPlot
 
+    # NOTE: The following functions are equivalents of the above but taking a different input (ie a list not array)
+
+    def approximation_of_LLRs_for_list(self, observed_timepoints, cells, number_of_observed_cells, number_of_synthetic_cells, initial_guess): #, normalise = True):
+        '''
+        Choosing a threshold for the LLR relies on a Bootstrap approach to approximate the LLR distribution
+        for a population of non-oscillating cells:
+
+        1. Fit OUosc and OU GP, Storing Results and Calculating LLR from each Observed Cell
+        2. Simulate Synthetic Cells with the Null Aperiodic OU Model.
+        3. Calculate the LLRs for each Synthetic Cell and store them.
+            The number of synthetic cells generated is equally
+        4. Normalise the LLRs.
+        5. Optional: plot a histogram of the LLRs).
+            this gives an approximate distribution for the LLRs which allow us to calculate
+
+        Corresponds to step 1. and 2. in original paper.
+
+        Parameters:
+        -----------
+
+        observed_timepoints: ndarray
+            Input a nx1 array where n is the number of observations per cell. This will represent the timepoints at which
+            the gene expression levels for each cell were measured.
+
+        cells : ndarray
+            Input a nxm array where n is the number of observations per cell and m is the number of observed cells.
+            This can be easily retrieved from an excel file or from the output of GP.generate_prior_ou_trace().
+
+        number_of_observed_cells: integer
+            Might not need this as can be retrieved from the cells array but could also leave it as a failsafe that it
+            coincides with the number of columns.
+
+        number_of_synth_cells: integer
+            As a general rule of thumb, as proposed by 'Identifying stochastic oscillations in single-cell live imaging time
+            series using Gaussian processes', it is preferred to pick out at least 20 synthetic cells per observed cell.
+            Hence if the number of observed cells is 10, we get a total of 200 synthetic cells to calculate LLRs from.
+
+        normalised: boolean
+            In project LLRs from data are normalised before moving forward. Hence default is True.
+            Note that in the project only the observed one seem to have been normalised, not the synthetic bootstrap.
+
+        Returns:
+        --------
+
+        LLR: ndarray
+        Returns an array of size (2,) where
+            LLR[0]: represents the normalised LLR values of the time series from the data.
+            LLR[1]: represents the LLR values of the synthetic time series from the bootstrapping.
+        '''
+
+        start_time = time.time()
+
+        number_of_parameters = 4  # As we have alpha, beta and variance and noise
+
+        par_cell_osc = np.zeros((number_of_parameters, number_of_observed_cells))
+        par_cell_non_osc = np.zeros((number_of_parameters, number_of_observed_cells))
+        loglik_cell_non_osc = np.zeros((number_of_observed_cells))
+        loglik_cell_osc = np.zeros((number_of_observed_cells))
+        llikelihood_ratio_observed_cells = np.zeros((number_of_observed_cells))
+        normalised_llikelihood_ratio_observed_cells = np.zeros((number_of_observed_cells))
+
+        # First Loop Deals Fitting OUosc and OU GP, Storing Results and Calculating LLR from each Observed Cell
+
+        for cell in range(number_of_observed_cells):
+
+            observed_cell = cells[cell]
+            number_of_observations = len(observed_cell)
+            observed_timepoints_per_cell = observed_timepoints[0:number_of_observations]
+
+            self.optim_non_osc = optimisation.Optimisation(oscillatory = False, observed_timepoints = observed_timepoints_per_cell, observed_y = observed_cell)
+            op_cell_non_osc = self.optim_non_osc.optimizing_neg_marginal_loglikelihood(initial_guess)
+            self.optim_osc = optimisation.Optimisation(oscillatory = True, observed_timepoints = observed_timepoints_per_cell, observed_y = observed_cell)
+            op_cell_osc = self.optim_osc.optimizing_neg_marginal_loglikelihood(initial_guess)
+
+            par_cell_osc[:,cell] = op_cell_osc.x # Not for computation but for exporting
+            par_cell_non_osc[:,cell] = op_cell_non_osc.x # For computation of synthetic cells
+            loglik_cell_non_osc[cell] = - op_cell_non_osc.fun
+            loglik_cell_osc[cell] = - op_cell_osc.fun
+            llikelihood_ratio_observed_cells[cell] = 2*(loglik_cell_osc[cell] - loglik_cell_non_osc[cell])
+            # Normalisation as described in project is (LLR/length of data) * 100
+            # normalised_llikelihood_ratio_observed_cells[cell] = np.divide(llikelihood_ratio_observed_cells[cell],number_of_observed_cells*number_of_observations)*100
+
+        print("Completed Fitting of", number_of_observed_cells, "Observed Cells")
+
+        # Second Loop Deals with Synthetic Cells Generation to Approximate LLR Distribution
+        # Note even if observed cells have different 'end' times, we keep a uniform duration for the synthetic cells.
+
+        number_of_observations = len(observed_timepoints)
+        number_of_synth_cell_per_observed_cell = round(number_of_synthetic_cells/number_of_observed_cells)
+        # synthetic_data = np.zeros((number_of_observations, number_of_synth_cell_per_observed_cell)) should not be needed
+        synthetic_cells = np.zeros((number_of_observed_cells, number_of_observations, number_of_synth_cell_per_observed_cell))
+        for cell in range(number_of_observed_cells):
+
+            self.gp = gp.GP(alpha = par_cell_non_osc[0,cell], beta = par_cell_non_osc[1,cell], variance = par_cell_non_osc[2,cell], noise = par_cell_non_osc[3, cell], oscillatory = False)
+            synthetic_data = self.gp.generate_prior_ou_trace(duration = observed_timepoints[-1], number_of_observations = number_of_observations, number_of_traces = number_of_synth_cell_per_observed_cell)[:,1:number_of_synth_cell_per_observed_cell+1]
+            synthetic_cells[cell, :, :] = np.array([synthetic_data])
+            # print("Completed Generation of Synthetic Cells of Observed Cell", cell + 1)
+
+        print("Completed Generation of Synthetic Cells for all", number_of_observed_cells," Observed Cell")
+
+        # Third Loop Deals With Calculating LLR for each new Synthetic Cell
+        llikelihood_ratio_synth_cells = np.zeros((number_of_synth_cell_per_observed_cell*number_of_observed_cells))
+        i = -1
+        j = 0
+        for cell in range(number_of_observed_cells):
+            for synth_cell in range(number_of_synth_cell_per_observed_cell):
+                i = i + 1
+                try:
+                    self.optim_non_osc = optimisation.Optimisation(oscillatory = False, observed_timepoints = observed_timepoints, observed_y = synthetic_cells[cell,:,synth_cell])
+                    neg_llik_synth_non_osc = self.optim_non_osc.optimizing_neg_marginal_loglikelihood(initial_guess).fun
+                    self.optim_osc = optimisation.Optimisation(oscillatory = True, observed_timepoints = observed_timepoints, observed_y = synthetic_cells[cell,:,synth_cell])
+                    neg_llik_synth_osc = self.optim_osc.optimizing_neg_marginal_loglikelihood(initial_guess).fun
+                    llikelihood_ratio_synth_cells[i] = 2*((-neg_llik_synth_osc) - (-neg_llik_synth_non_osc))
+                except Exception as e:
+                    j = j + 1
+                    print(j, "synthetic cells could not be optimised out of the total", number_of_synthetic_cells)
+                    print("The Error associated with it is :", e)
+
+
+            print("Completed Fitting of OUosc and OU GP on Synthetic, Storing Results and Calculating LLR from Observed Cell", cell + 1)
+
+        print("Completed Fitting of OUosc and OU GP on", number_of_synthetic_cells," Synthetic Cells, storing their results and calculating LLRs")
+
+        # Setting negative LLRs to zero or will cause problems down the line.
+        llikelihood_ratio_observed_cells[llikelihood_ratio_observed_cells<0] = 0
+        normalised_llikelihood_ratio_observed_cells[normalised_llikelihood_ratio_observed_cells<0] = 0
+        llikelihood_ratio_synth_cells[llikelihood_ratio_synth_cells<0] = 0
+
+        # Store Results Away
+        LLR = np.array((llikelihood_ratio_observed_cells, llikelihood_ratio_synth_cells))
+        # LLR = np.array((normalised_llikelihood_ratio_observed_cells, llikelihood_ratio_synth_cells))
+        optim_params = np.vstack((par_cell_osc, par_cell_non_osc))
+
+        end_time = time.time()
+        print("Execution time:", end_time-start_time)
+
+        return LLR, optim_params
+
+    def model_selection_for_list(self, observed_timepoints, observed_cells, number_of_synthetic_cells, control_q_value = 0.05, initial_guess = [0.001, 0.0, 0.001, 0.0]):
+        """
+        Function to run the whole model_selection process.
+
+        Parameters
+        ----------
+
+        Same inputs and descriptions as approximation_of_LLRs check if not present here.
+
+        control_cells: ndarray
+            A control group is necessary to make accurate inference. You would expect the control cells to be coming from a
+            known promoter with constitutive expression (non-oscillatory).
+            This array is of size nxm where n is the number of observations and m is the number of control cells.
+
+        observed_cells: ndarray
+            Input a nxm array where n is the number of observations per cell and m is the number of observed cells.
+            This can be easily retrieved from an excel file (real data) or, if not available,
+            from the output of GP.generate_prior_ou_trace().
+
+        control_q_value: float
+            Controlling the q value at 0.05 is equivalent to controlling at an FDR of 5%.
+            This can be made less stringent, ie 10%, which ideally you would expect it increases the pass rate.
+
+        Returns
+        -------
+
+
+        """
+
+        number_of_observed_cells = len(observed_cells)
+
+        # Step 1. and 2.
+        approximation_of_LLRs = self.approximation_of_LLRs_for_list(observed_timepoints, observed_cells, number_of_observed_cells, number_of_synthetic_cells, initial_guess)
+        optim_parameters = approximation_of_LLRs[1]
+        LLRs = approximation_of_LLRs[0]
+
+        # Optional: Distribution Plot
+        DistributionPlot = self.visualisation.LLR_distribution_plot(LLRs[0], LLRs[1])
+
+        # Step 3.
+        pi0 = self.distribution_of_proportion_of_non_osc_cells(LLRs, number_of_observed_cells, number_of_synthetic_cells)
+        pi0_est = self.estimation_of_proportion_of_non_osc_cells(LLRs, pi0)
+        Pi0Plot = pi0_est[0]
+        pi0_est = pi0_est[1]
+
+        # Step 4.
+        q_est = self.estimation_of_q_values(LLRs, pi0_est)
+
+        # Optional: Q_values Plot
+        QValuesPlot = self.visualisation.q_values_plot(LLRs[0], q_est, control_q_value)
+
+        # Lastly, Inferences:
+
+        #cutoff = np.where(q_est < control_q_value)[0][0]
+        reorderedq = np.sort(q_est)
+        passlist = reorderedq < control_q_value
+        q_values = np.vstack((reorderedq, passlist))
+        passed = np.count_nonzero(passlist)
+        print("With a control q-value of", control_q_value, ",", passed, "out of", number_of_observed_cells,
+              "cells from the data exceed the LLR threshold and are classified as oscillatory")
+
+        return LLRs, optim_parameters, q_values, DistributionPlot, Pi0Plot, QValuesPlot
+
+    def model_selection_for_list_with_control(self, observed_timepoints, control_cells, observed_cells, number_of_synthetic_cells, control_q_value = 0.05, initial_guess = [0.001, 0.0, 0.001, 0.0]):
+        """
+        Function to run the whole model_selection process from list with control cells.
+
+        Parameters
+        ----------
+
+        Same inputs and descriptions as approximation_of_LLRs check if not present here.
+
+        control_cells: ndarray
+            A control group is necessary to make accurate inference. You would expect the control cells to be coming from a
+            known promoter with constitutive expression (non-oscillatory).
+            This array is of size nxm where n is the number of observations and m is the number of control cells.
+
+        observed_cells: ndarray
+            Input a nxm array where n is the number of observations per cell and m is the number of observed cells.
+            This can be easily retrieved from an excel file (real data) or, if not available,
+            from the output of GP.generate_prior_ou_trace().
+
+        control_q_value: float
+            Controlling the q value at 0.05 is equivalent to controlling at an FDR of 5%.
+            This can be made less stringent, ie 10%, which ideally you would expect it increases the pass rate.
+
+        Returns
+        -------
+
+
+        """
+
+        number_of_observed_cells = len(observed_cells) + len(control_cells)
+        cells = np.hstack((observed_cells, control_cells))
+
+        # Step 1. and 2.
+        approximation_of_LLRs = self.approximation_of_LLRs_for_list(observed_timepoints, cells, number_of_observed_cells, number_of_synthetic_cells, initial_guess)
+        optim_parameters = approximation_of_LLRs[1]
+        LLRs = approximation_of_LLRs[0]
+
+        # Optional: Distribution Plot
+        # Optional: Distribution Plot
+        observed_LLRs = LLRs[0][0:len(observed_cells)]
+        control_LLRs = LLRs[0][len(observed_cells):]
+        synthetic_LLRs = LLRs[1]
+        DistributionPlot = self.visualisation.LLR_distribution_plot_with_control(control_LLRs, observed_LLRs, synthetic_LLRs)
+
+        # Step 3.
+        pi0 = self.distribution_of_proportion_of_non_osc_cells(LLRs, number_of_observed_cells, number_of_synthetic_cells)
+        pi0_est = self.estimation_of_proportion_of_non_osc_cells(LLRs, pi0)
+        Pi0Plot = pi0_est[0]
+        pi0_est = pi0_est[1]
+
+        # Step 4.
+        q_est = self.estimation_of_q_values(LLRs, pi0_est)
+
+        # Optional: Q_values Plot
+        QValuesPlot = self.visualisation.q_values_plot(LLRs[0], q_est, control_q_value)
+
+        # Lastly, Inferences:
+
+        #cutoff = np.where(q_est < control_q_value)[0][0]
+        reorderedq = np.sort(q_est)
+        passlist = reorderedq < control_q_value
+        q_values = np.vstack((reorderedq, passlist))
+        passed = np.count_nonzero(passlist)
+        print("With a control q-value of", control_q_value, ",", passed, "out of", number_of_observed_cells,
+              "cells from the data exceed the LLR threshold and are classified as oscillatory")
+
+        return LLRs, optim_parameters, q_values, DistributionPlot, Pi0Plot, QValuesPlot
+
+    # Calculating LLR for one cell
+
+    def calculating_LLR(self, observed_timepoints, observed_cell, initial_guess):
+        """
+
+        :param observed_timepoints:
+        :param observed_cell:
+        :param initial_guess:
+        :return:
+        """
+
+        number_of_observations = len(observed_cell)
+
+        self.optim_non_osc = optimisation.Optimisation(oscillatory = False, observed_timepoints = observed_timepoints, observed_y = observed_cell)
+        op_cell_non_osc = self.optim_non_osc.optimizing_neg_marginal_loglikelihood(initial_guess)
+        self.optim_osc = optimisation.Optimisation(oscillatory = True, observed_timepoints = observed_timepoints, observed_y = observed_cell)
+        op_cell_osc = self.optim_osc.optimizing_neg_marginal_loglikelihood(initial_guess)
+
+        loglik_cell_non_osc = - op_cell_non_osc.fun
+        loglik_cell_osc = - op_cell_osc.fun
+        llikelihood_ratio = 2*(loglik_cell_osc - loglik_cell_non_osc)
+        # Normalisation as described in project is (LLR/length of data) * 100
+        # normalised_llikelihood_ratio = np.divide(llikelihood_ratio,number_of_observations)*100
+
+        return llikelihood_ratio
+
+    def contingency_table(self, q_values_observed_cells, q_values_control_cells):
+        """
+        This can only be run when the control cells have be run as well. Otherwise there will be missing parts.
+        Note, this is based on the idea that the control cells are a population of non-oscillating cells and that
+        the observed cells are a population of oscillating cells. This is to determine the effectiveness of the model selection.
+
+        Parameters
+        ---------
+
+        q_values_observed_cells: ndarray
+            Use directly output [2] from model_selection function (called q_values, it includes a passlist)
+        q_values_control_cells: ndarray
+            Use directly output [2] from model_selection function (called q_values, it includes a passlist)
+
+        Returns
+        -------
+
+        contingency_table : ndarray
+            As shown in https://en.wikipedia.org/wiki/Receiver_operating_characteristic
+
+        """
+        number_of_observed_cells = len(q_values_observed_cells[0])
+        number_of_control_cells = len(q_values_control_cells[0])
+
+        passlist_observed = sum(1 for passed in q_values_observed_cells[1] if passed == 1)
+        passlist_control = sum(1 for passed in q_values_control_cells[1] if passed == 0)
+
+        true_negatives = passlist_control
+        false_negatives = number_of_observed_cells - passlist_observed
+        true_positives = passlist_observed
+        false_positives = number_of_control_cells - passlist_control
+
+        predicted_condition_positive = np.hstack((true_positives, false_positives))
+        predicted_condition_negative = np.hstack((true_negatives, false_negatives))
+        contingency_table = np.vstack((predicted_condition_positive, predicted_condition_negative))
+
+        return contingency_table
+
+    def ROC_curves(self, contingency_table):
+        """
+        When we predict a binary outcome, it is either a correct prediction (true positive) or not (false positive).
+        It is a plot of the false positive rate (x-axis) versus the true positive rate (y-axis)
+        for a number of different candidate threshold values between 0.0 and 1.0.
+
+        Parameters
+        --------
 
 
 
+        Returns
+        --------
 
 
+        """
+        true_positives = contingency_table[0,0]
+        false_positives = contingency_table[1,0]
+        true_negatives = contingency_table[0,1]
+        false_negatives = contingency_table[1,1]
 
+        true_positive_rate = true_positives / (true_positives + false_negatives)
+        sensitivity = true_positives / (true_positives + false_negatives)
+        false_positive_rate = false_positives / (false_positives + true_negatives)
+        specificity = true_negatives / (true_negatives + false_positives)
+
+        # where false_positive_rate = 1 - specificity
+
+        return
+
+    # NOTE: The following functions are equivalent to the model selection for lists above but ensuring that the length of the Synthetic Cells generated is adjusted
+
+    def approximation_of_LLRs_for_list_new(self, observed_timepoints, cells, number_of_observed_cells, number_of_synthetic_cells, initial_guess): #, normalise = True):
+        '''
+        Choosing a threshold for the LLR relies on a Bootstrap approach to approximate the LLR distribution
+        for a population of non-oscillating cells:
+
+        1. Fit OUosc and OU GP, Storing Results and Calculating LLR from each Observed Cell
+        2. Simulate Synthetic Cells with the Null Aperiodic OU Model.
+        3. Calculate the LLRs for each Synthetic Cell and store them.
+            The number of synthetic cells generated is equally
+        4. Normalise the LLRs.
+        5. Optional: plot a histogram of the LLRs).
+            this gives an approximate distribution for the LLRs which allow us to calculate
+
+        Corresponds to step 1. and 2. in original paper.
+
+        Parameters:
+        -----------
+
+        observed_timepoints: ndarray
+            Input a nx1 array where n is the number of observations per cell. This will represent the timepoints at which
+            the gene expression levels for each cell were measured.
+
+        cells : list
+            Input a list where each entry is an array representative of an observed cell. The length of 'cells' should be
+            equivalent to the number_of_observed_cells.
+
+        number_of_observed_cells: integer
+            Might not need this as can be retrieved from the cells array but could also leave it as a failsafe that it
+            coincides with the number of columns.
+
+        number_of_synth_cells: integer
+            As a general rule of thumb, as proposed by 'Identifying stochastic oscillations in single-cell live imaging time
+            series using Gaussian processes', it is preferred to pick out at least 20 synthetic cells per observed cell.
+            Hence if the number of observed cells is 10, we get a total of 200 synthetic cells to calculate LLRs from.
+
+        normalised: boolean
+            In project LLRs from data are normalised before moving forward. Hence default is True.
+            Note that in the project only the observed one seem to have been normalised, not the synthetic bootstrap.
+
+        Returns:
+        --------
+
+        LLR: ndarray
+        Returns an array of size (2,) where
+            LLR[0]: represents the normalised LLR values of the time series from the data.
+            LLR[1]: represents the LLR values of the synthetic time series from the bootstrapping.
+        '''
+
+        start_time = time.time()
+
+        number_of_parameters = 4  # As we have alpha, beta and variance and noise
+
+        par_cell_osc = np.zeros((number_of_parameters, number_of_observed_cells))
+        par_cell_non_osc = np.zeros((number_of_parameters, number_of_observed_cells))
+        loglik_cell_non_osc = np.zeros((number_of_observed_cells))
+        loglik_cell_osc = np.zeros((number_of_observed_cells))
+        llikelihood_ratio_observed_cells = np.zeros((number_of_observed_cells))
+        # normalised_llikelihood_ratio_observed_cells = np.zeros((number_of_observed_cells))
+
+        # First Loop Deals Fitting OUosc and OU GP, Storing Results and Calculating LLR from each Observed Cell
+
+        for cell in range(number_of_observed_cells):
+
+            observed_cell = cells[cell]
+            number_of_observations_per_cell = len(observed_cell)
+            observed_timepoints_per_cell = observed_timepoints[0:number_of_observations_per_cell]
+
+            self.optim_non_osc = optimisation.Optimisation(oscillatory = False, observed_timepoints = observed_timepoints_per_cell, observed_y = observed_cell)
+            op_cell_non_osc = self.optim_non_osc.optimizing_neg_marginal_loglikelihood(initial_guess)
+            self.optim_osc = optimisation.Optimisation(oscillatory = True, observed_timepoints = observed_timepoints_per_cell, observed_y = observed_cell)
+            op_cell_osc = self.optim_osc.optimizing_neg_marginal_loglikelihood(initial_guess)
+
+            par_cell_osc[:,cell] = op_cell_osc.x # Not for computation but for exporting
+            par_cell_non_osc[:,cell] = op_cell_non_osc.x # For computation of synthetic cells
+            loglik_cell_non_osc[cell] = - op_cell_non_osc.fun
+            loglik_cell_osc[cell] = - op_cell_osc.fun
+            llikelihood_ratio_observed_cells[cell] = 2*(loglik_cell_osc[cell] - loglik_cell_non_osc[cell])
+            # Normalisation as described in project is (LLR/length of data) * 100
+            # normalised_llikelihood_ratio_observed_cells[cell] = np.divide(llikelihood_ratio_observed_cells[cell],number_of_observed_cells*number_of_observations)*100
+
+        print("Completed Fitting of", number_of_observed_cells, "Observed Cells")
+
+        # Second Loop Deals with Synthetic Cells Generation to Approximate LLR Distribution
+        # Note even if observed cells have different 'end' times, we keep a uniform duration for the synthetic cells.
+
+        number_of_synth_cell_per_observed_cell = round(number_of_synthetic_cells/number_of_observed_cells)
+        # synthetic_data = np.zeros((number_of_observations, number_of_synth_cell_per_observed_cell)) should not be needed
+        synthetic_cells = []
+        for cell in range(number_of_observed_cells):
+
+            observed_cell = cells[cell]
+            number_of_observations_per_cell = len(observed_cell)
+            observed_timepoints_per_cell = observed_timepoints[0:number_of_observations_per_cell]
+
+            self.gp = gp.GP(alpha = par_cell_non_osc[0,cell], beta = par_cell_non_osc[1,cell], variance = par_cell_non_osc[2,cell], noise = par_cell_non_osc[3, cell], oscillatory = False)
+            synthetic_data = self.gp.generate_prior_ou_trace(duration = observed_timepoints_per_cell[-1], number_of_observations = number_of_observations_per_cell, number_of_traces = number_of_synth_cell_per_observed_cell)[:,1:number_of_synth_cell_per_observed_cell+1]
+            synthetic_cells.append(synthetic_data) # Store in List, for example entry [1] etc is the ndarray of synthetic traces for cell 1.
+            # print("Completed Generation of Synthetic Cells of Observed Cell", cell + 1)
+
+        print("Completed Generation of Synthetic Cells for all", number_of_observed_cells, " Observed Cell")
+
+        # Third Loop Deals With Calculating LLR for each new Synthetic Cell
+        llikelihood_ratio_synth_cells = np.zeros((number_of_synth_cell_per_observed_cell*number_of_observed_cells))
+        i = -1
+        j = 0
+        for cell in range(number_of_observed_cells):
+            for synth_cell in range(number_of_synth_cell_per_observed_cell):
+                i = i + 1
+                try:
+                    observed_cell = cells[cell]
+                    number_of_observations_per_cell = len(observed_cell)
+                    observed_timepoints_per_cell = observed_timepoints[0:number_of_observations_per_cell]
+                    synthetic_data = synthetic_cells[cell][:,synth_cell]
+
+                    self.optim_non_osc = optimisation.Optimisation(oscillatory = False, observed_timepoints = observed_timepoints_per_cell, observed_y = synthetic_data)
+                    neg_llik_synth_non_osc = self.optim_non_osc.optimizing_neg_marginal_loglikelihood(initial_guess).fun
+                    self.optim_osc = optimisation.Optimisation(oscillatory = True, observed_timepoints = observed_timepoints_per_cell, observed_y = synthetic_data)
+                    neg_llik_synth_osc = self.optim_osc.optimizing_neg_marginal_loglikelihood(initial_guess).fun
+                    llikelihood_ratio_synth_cells[i] = 2*((-neg_llik_synth_osc) - (-neg_llik_synth_non_osc))
+
+                except Exception as e:
+                    j = j + 1
+                    print(j, "synthetic cells could not be optimised out of the total", number_of_synthetic_cells)
+                    print("The Error associated with it is :", e)
+
+            print("Completed Fitting of OUosc and OU GP on Synthetic, Storing Results and Calculating LLR from Observed Cell", cell + 1)
+
+        print("Completed Fitting of OUosc and OU GP on", number_of_synthetic_cells," Synthetic Cells, storing their results and calculating LLRs")
+
+        # Setting negative LLRs to zero or will cause problems down the line.
+        llikelihood_ratio_observed_cells[llikelihood_ratio_observed_cells<0] = 0
+        # normalised_llikelihood_ratio_observed_cells[normalised_llikelihood_ratio_observed_cells<0] = 0
+        llikelihood_ratio_synth_cells[llikelihood_ratio_synth_cells<0] = 0
+
+        # Store Results Away
+        LLR = np.array((llikelihood_ratio_observed_cells, llikelihood_ratio_synth_cells))
+        # LLR = np.array((normalised_llikelihood_ratio_observed_cells, llikelihood_ratio_synth_cells))
+        optim_params = np.vstack((par_cell_osc, par_cell_non_osc))
+
+        end_time = time.time()
+        print("Execution time:", end_time-start_time)
+
+        return LLR, optim_params
+
+    def model_selection_for_list_new(self, observed_timepoints, observed_cells, number_of_synthetic_cells, control_q_value = 0.05, initial_guess = [0.001, 0.0, 0.001, 0.0]):
+        """
+        Function to run the whole model_selection process.
+
+        Parameters
+        ----------
+
+        Same inputs and descriptions as approximation_of_LLRs check if not present here.
+
+        control_cells: ndarray
+            A control group is necessary to make accurate inference. You would expect the control cells to be coming from a
+            known promoter with constitutive expression (non-oscillatory).
+            This array is of size nxm where n is the number of observations and m is the number of control cells.
+
+        observed_cells: ndarray
+            Input a nxm array where n is the number of observations per cell and m is the number of observed cells.
+            This can be easily retrieved from an excel file (real data) or, if not available,
+            from the output of GP.generate_prior_ou_trace().
+
+        control_q_value: float
+            Controlling the q value at 0.05 is equivalent to controlling at an FDR of 5%.
+            This can be made less stringent, ie 10%, which ideally you would expect it increases the pass rate.
+
+        Returns
+        -------
+
+        """
+
+        number_of_observed_cells = len(observed_cells)
+
+        # Step 1. and 2.
+        approximation_of_LLRs = self.approximation_of_LLRs_for_list_new(observed_timepoints, observed_cells, number_of_observed_cells, number_of_synthetic_cells, initial_guess)
+        optim_parameters = approximation_of_LLRs[1]
+        LLRs = approximation_of_LLRs[0]
+
+        # Optional: Distribution Plot
+        DistributionPlot = self.visualisation.LLR_distribution_plot(LLRs[0], LLRs[1])
+
+        # Step 3.
+        pi0 = self.distribution_of_proportion_of_non_osc_cells(LLRs, number_of_observed_cells, number_of_synthetic_cells)
+        pi0_est = self.estimation_of_proportion_of_non_osc_cells(LLRs, pi0)
+        Pi0Plot = pi0_est[0]
+        pi0_est = pi0_est[1]
+
+        # Step 4.
+        q_est = self.estimation_of_q_values(LLRs, pi0_est)
+
+        # Optional: Q_values Plot
+        QValuesPlot = self.visualisation.q_values_plot(LLRs[0], q_est, control_q_value)
+
+        # Lastly, Inferences:
+
+        #cutoff = np.where(q_est < control_q_value)[0][0]
+        reorderedq = np.sort(q_est)
+        passlist = reorderedq < control_q_value
+        q_values = np.vstack((reorderedq, passlist))
+        passed = np.count_nonzero(passlist)
+        print("With a control q-value of", control_q_value, ",", passed, "out of", number_of_observed_cells,
+              "cells from the data exceed the LLR threshold and are classified as oscillatory")
+
+        return LLRs, optim_parameters, q_values, DistributionPlot, Pi0Plot, QValuesPlot
+
+    def model_selection_for_list_new_with_control(self, observed_timepoints, control_cells, observed_cells, number_of_synthetic_cells, control_q_value = 0.05, initial_guess = [0.001, 0.0, 0.001, 0.0]):
+        """
+        Function to run the whole model_selection process from list with control cells.
+
+        Parameters
+        ----------
+
+        Same inputs and descriptions as approximation_of_LLRs check if not present here.
+
+        control_cells: ndarray
+            A control group is necessary to make accurate inference. You would expect the control cells to be coming from a
+            known promoter with constitutive expression (non-oscillatory).
+            This array is of size nxm where n is the number of observations and m is the number of control cells.
+
+        observed_cells: ndarray
+            Input a nxm array where n is the number of observations per cell and m is the number of observed cells.
+            This can be easily retrieved from an excel file (real data) or, if not available,
+            from the output of GP.generate_prior_ou_trace().
+
+        control_q_value: float
+            Controlling the q value at 0.05 is equivalent to controlling at an FDR of 5%.
+            This can be made less stringent, ie 10%, which ideally you would expect it increases the pass rate.
+
+        Returns
+        -------
+
+
+        """
+
+        number_of_observed_cells = len(observed_cells) + len(control_cells)
+        cells = np.hstack((observed_cells, control_cells))
+
+        # Step 1. and 2.
+        approximation_of_LLRs = self.approximation_of_LLRs_for_list_new(observed_timepoints, cells, number_of_observed_cells, number_of_synthetic_cells, initial_guess)
+        optim_parameters = approximation_of_LLRs[1]
+        LLRs = approximation_of_LLRs[0]
+
+        # Optional: Distribution Plot
+        observed_LLRs = LLRs[0][0:len(observed_cells)]
+        control_LLRs = LLRs[0][len(observed_cells):]
+        synthetic_LLRs = LLRs[1]
+        DistributionPlot = self.visualisation.LLR_distribution_plot_with_control(control_LLRs, observed_LLRs, synthetic_LLRs)
+
+        # Step 3.
+        pi0 = self.distribution_of_proportion_of_non_osc_cells(LLRs, number_of_observed_cells, number_of_synthetic_cells)
+        pi0_est = self.estimation_of_proportion_of_non_osc_cells(LLRs, pi0)
+        Pi0Plot = pi0_est[0]
+        pi0_est = pi0_est[1]
+
+        # Step 4.
+        q_est = self.estimation_of_q_values(LLRs, pi0_est)
+
+        # Optional: Q_values Plot
+        QValuesPlot = self.visualisation.q_values_plot(LLRs[0], q_est, control_q_value)
+
+        # Lastly, Inferences:
+
+        #cutoff = np.where(q_est < control_q_value)[0][0]
+        reorderedq = np.sort(q_est)
+        passlist = reorderedq < control_q_value
+        q_values = np.vstack((reorderedq, passlist))
+        passed = np.count_nonzero(passlist)
+        print("With a control q-value of", control_q_value, ",", passed, "out of", number_of_observed_cells,
+              "cells from the data exceed the LLR threshold and are classified as oscillatory")
+
+        return LLRs, optim_parameters, q_values, DistributionPlot, Pi0Plot, QValuesPlot
 
 
 

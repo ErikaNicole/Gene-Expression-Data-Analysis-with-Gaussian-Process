@@ -1,5 +1,8 @@
 # Class to prep cell and synthetic data for multiple purposes
 import numpy as np
+import pandas as pd
+import os
+from openpyxl import Workbook
 from numpy.linalg import cholesky, det, lstsq, inv
 from scipy.linalg import cholesky, cho_solve
 
@@ -11,13 +14,37 @@ from scipy.linalg import cholesky, cho_solve
 
 class Data_Input():
 
-    # todo: input function to take excel file??
-
     def __init__(self):
         return
 
-    def getCSV(self):
-        return
+    def get_excel(self):
+
+        try:
+            file_location = input(" Excel File Path : ")
+            df = pd.read_excel(r'' + file_location)
+        except:
+            raise(FileNotFoundError("Ensure you specify full path, for example /Users/Me/Documents/file.xlsx"))
+
+        return df
+
+    def remove_nans(self, number_of_observed_cells, dataframe):
+
+        observed_cells = []
+        for cell in range(number_of_observed_cells):
+            for observation in range(len(dataframe[2:])):                          # todo: change 2 to 1 when formatting convention has been finalised.
+                if np.isfinite(np.array(dataframe.iloc[len(dataframe[2:]), cell + 1])):
+                    print("Length of observations", len(dataframe[2:]), "for cell", cell + 1)
+                    cells = dataframe.iloc[2:, cell + 1].to_numpy()
+                    # plt.plot(cells)
+                    observed_cells.append(np.array(cells))
+                    break; # break is necessary to avoid second loop to run every time nan condition is met.
+                elif np.isnan(np.array(dataframe.iloc[observation + 2, cell + 1])):
+                    print("Length of observations", observation - 1, "for cell", cell + 1)  # Here -1 is to count the observation just before condition is met
+                    cells = dataframe.iloc[2:(observation + 1), cell + 1].to_numpy()               # Here -1 as above as well as + 2 to count for the fact that we started from line 2.
+                    observed_cells.append(np.array(cells))
+                    break; # break is necessary to avoid second loop to run every time nan condition is met.
+
+        return observed_cells
 
 class Normalisation():
 
@@ -74,6 +101,39 @@ class Normalisation():
 
         return norm
 
+    def normalise_many_cells_from_list(self, cells_measurements):
+        """
+        To work this function requires to have an array cells_measurements correctly laid out.
+
+        Parameters:
+        -----------
+
+        cells_measurements: list
+            this list contains a number of arrays representative of the total number of observed cells.
+            Each ndarray contained is a 1D vector of potentially different dimensions as the number of observations is not uniform.
+
+        Returns:
+        -----------
+
+            norm: list
+                normalised list of cells_measurements
+
+        """
+
+        number_of_cells = len(cells_measurements)
+        normalised_cells = []
+        #y = np.zeros((number_of_measurements,number_of_cells))
+        #stds_y = np.zeros((number_of_cells))
+        for cell in range(number_of_cells):
+            number_of_measurements = len(cells_measurements[cell])
+            normalised_cell = np.zeros(number_of_measurements)
+            for index, measurement in enumerate(cells_measurements[cell]):
+                normalised_cell[index] = measurement - np.mean(cells_measurements[cell])
+            standard_deviation = np.std(cells_measurements[cell])
+            normalised_cells.append(normalised_cell/standard_deviation)
+
+        return normalised_cells
+
     # def noise(self, background_data):
     #    """
     #    :param normalised_cells_measurements:
@@ -96,7 +156,7 @@ class Normalisation():
 
 class Detrending():
 
-    def __init__(self, alpha, variance, noise):
+    def __init__(self, alpha, variance = 1.0, noise = 0.001):
         """
 
         alpha: float
@@ -359,9 +419,241 @@ class Detrending():
 
         return detrended_data, test_timepoints, fits
 
+    def detrend_data_from_list(self, observed_timepoints, data_to_detrend, cholesky_decompose = True):
+        """
+        To work this function requires to have an array data_to_detrend correctly laid out.
+
+        Parameters:
+        -----------
+
+        observed_timepoints: vector
+            The vector of training inputs which have been observed.
+            It takes vector inputs as a number of observations are needed to train the model well.
+            Size of the vector |x| = N.
+
+        data_to_detrend: list
+            This list contains a number of arrays representative of the total number of observed cells.
+            Each ndarray contained is a 1D vector of potentially different dimensions as the number of observations is not uniform.
 
 
+        Returns:
+        -----------
 
+        detrended_data: list
+            This list contains a number of arrays representative of the total number of observed cells.
+            The entries have all been detrended using the respective fitted GP using the SE Covariate Function.
+
+        """
+
+        duration = round(float(observed_timepoints[-1]))
+
+        test_timepoints = np.linspace(0, duration, 500)
+        test_timepoints = np.unique(np.sort(np.hstack((test_timepoints, observed_timepoints.ravel()))))
+        # This way we make sure test_timepoints contain a number of timepoints, including the observed ones!
+        # But also removing duplicates just in case.
+        number_of_cells = len(data_to_detrend)
+
+        # Note: try except wrap is needed to deal with the detrending of one cell.
+
+        if number_of_cells != 1:
+
+            fits = []
+
+            # First loop is made to carry out different fittings for each cell, hence yielding different predictors.
+            for cell in range(number_of_cells):
+                number_of_observations = len(data_to_detrend[cell]) # Each cell has a different number of observations.
+                observed_cell = data_to_detrend[cell]
+                observed_timepoints_per_cell = observed_timepoints[0:number_of_observations]
+                # I want to ideally have the fit to be evaluated at more points than my actual observations.
+                # I can then detrend and hopefully get my timepoints to match up.
+                fits.append(self.fit_SE(observed_timepoints_per_cell, observed_cell, test_timepoints, 1, cholesky_decompose)[:,1])
+
+            # Of course predictor has a lot more points than the observed one,
+            # This loop gives me the indices of test_timepoints corresponding to the equivalent time point observed.
+            # Using the corresponding indices we can then carry out the detrending.
+
+            detrended_data = []
+            #detrended_data = np.zeros((number_of_observations, number_of_cells))
+            for cell in range(number_of_cells):
+                number_of_observations = len(data_to_detrend[cell])
+                detrended = np.zeros(number_of_observations)
+                observed_timepoints_per_cell = observed_timepoints[0:number_of_observations]
+                for i, timepoint1 in enumerate(test_timepoints):
+                    for j, timepoint2 in enumerate(observed_timepoints_per_cell):
+                        if timepoint1 == timepoint2:
+                            detrended[j] = data_to_detrend[cell][j] - fits[cell][i]
+                detrended_data.append(detrended)
+
+        else:
+
+            observed_cell = data_to_detrend[0]
+            number_of_observations = len(observed_cell)
+            observed_timepoints = observed_timepoints[0:number_of_observations]
+            fits = self.fit_SE(observed_timepoints, observed_cell, test_timepoints, 1, cholesky_decompose)[:,1]
+            detrended = np.zeros(number_of_observations)
+            detrended_data = []
+            for i, timepoint1 in enumerate(test_timepoints):
+                for j, timepoint2 in enumerate(observed_timepoints):
+                    if timepoint1 == timepoint2:
+                        detrended[j] = observed_cell[j] - fits[i]
+            detrended_data.append(detrended)
+
+        return detrended_data, test_timepoints, fits
+
+class Data_Export():
+
+    def __init__(self):
+        return
+
+    def list_of_cells(self, number_of_observed_cells):
+
+        list = []
+        array = np.arange(0, number_of_observed_cells, 1)
+        s = "Cell"
+        for item in array:
+            s += str(item + 1)
+            list.append(s)
+            s = "Cell"
+
+        return list
+
+    def export_detrended_data(self, detrended_data):
+        """
+        Function to export into dataframe
+
+        Parameters
+        ---------
+
+        detrended_data: ndarray
+            Use directly output from detrend_data (ndarray output) or detrend_data_from_list (list output) functions
+
+        Returns
+        --------
+        dataframe: DataFrame
+
+        """
+
+        if isinstance(detrended_data, np.ndarray):
+            number_of_observed_cells = len(detrended_data[0, :])
+            column_names = self.list_of_cells(number_of_observed_cells)
+            dataframe = pd.DataFrame(data = detrended_data, columns = column_names)
+        else:
+            number_of_observed_cells = len(detrended_data)
+            lengths = np.zeros((number_of_observed_cells))
+            column_names = self.list_of_cells(number_of_observed_cells)
+            for cell in range(number_of_observed_cells):
+                lengths[cell] = len(detrended_data[cell])
+            length = max(lengths)
+            export_detrended_data = np.zeros((int(length), number_of_observed_cells))
+            for cell in range(number_of_observed_cells):
+                export_detrended_data[:, cell] = np.hstack((detrended_data[cell], np.repeat("nan", length - len(detrended_data[cell]))))
+
+            dataframe = pd.DataFrame(data = export_detrended_data, columns = column_names)
+
+        return dataframe
+
+    def export_parameter_estimates(self, parameters):
+        """
+        Function to export into dataframe
+
+        parameters:
+            Use directly output [1] from model_selection
+
+        Returns
+        ------
+        dataframe: DataFrame
+
+        """
+
+        number_of_observed_cells = len(parameters[0, :])
+        column_names = self.list_of_cells(number_of_observed_cells)
+        row_names = ["OUosc alpha", "OUosc beta", "OUosc variance", "OUosc noise", "OU alpha", "OU beta", "OU variance", "OU noise"]
+        dataframe = pd.DataFrame(data = parameters, index = row_names, columns = column_names)
+        dataframe = dataframe.drop(index = ['OU beta'])
+
+        return dataframe
+
+    def export_LLRs_estimates(self, LLRs):
+        """
+        Function to export into dataframe
+
+        LLRs:
+            Use directly output [1] from model_selection
+
+        Returns
+        -------
+        dataframe: DataFrame
+
+        """
+
+        number_of_total_cells = len(LLRs[1])
+        length = max(len(LLRs[0]), len(LLRs[1]))
+        LLRs[0] = np.hstack((LLRs[0], np.repeat("nan", length - len(LLRs[0]))))
+        LLRs = np.vstack((LLRs[0], LLRs[1]))
+        column_names = self.list_of_cells(number_of_total_cells)
+        row_names = ["LLR Observed", "LLR Synthetic"]
+        dataframe = pd.DataFrame(data = LLRs, index = row_names, columns = column_names)
+
+        return dataframe
+
+    def export_q_values(self, q_values):
+        """
+        Function to export into dataframe
+
+        Parameters
+        -------
+
+        q-values: ndarray
+            Use directly output [1] from model_selection
+
+        Returns
+        -------
+        dataframe: DataFrame
+
+        """
+
+        number_of_total_cells = len(q_values[0])
+        column_names = self.list_of_cells(number_of_total_cells)
+        row_names = ["q_values", "pass list"]
+        dataframe = pd.DataFrame(data = q_values, index = row_names, columns = column_names)
+
+        return dataframe
+
+    def period_estimation(self, parameters):
+        """
+        Function to export into dataframe
+
+        parameters:
+            Use directly output [1] from model_selection
+
+        Returns
+        ------
+        dataframe: DataFrame
+
+        """
+
+        number_of_total_cells = len(parameters[0])
+        estimated_betas = parameters[1,:]
+        estimated_periods = (1/estimated_betas)
+        column_names = self.list_of_cells(number_of_total_cells)
+        data = np.vstack((estimated_betas, estimated_periods))
+        row_names = ["Estimated Frequency (1/hours)", "Estimated Period (hours)"]
+        dataframe = pd.DataFrame(data = data, index = row_names, columns = column_names)
+
+        return dataframe
+
+    def export_contingency_table(self, contigency_table):
+        """
+
+        :param contigency_table:
+        :return:
+        """
+
+        column_names = ["Condition Positive", "Condition Negative"]
+        row_names = ["Predicted Condition Positive", "Predicted Condition Negative"]
+        dataframe = pd.DataFrame(data = contigency_table, index = row_names, columns = column_names)
+
+        return dataframe
 
 
 
@@ -394,9 +686,6 @@ class Detrending():
 #visualisation = Visualisation_GP(0.0005, 0.5, 0.5, 0.0001, True, observed_cell_x, observed_cell_y, True)
 #visualisation.gp_se_trace_plot(test_timepoints, number_of_traces = 1)
 #detrended_data = detrend.detrend_data(observed_cell_x, observed_cell_y)
-
-
-
 
 
 
