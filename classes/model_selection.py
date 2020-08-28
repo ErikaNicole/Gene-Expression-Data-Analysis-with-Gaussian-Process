@@ -6,7 +6,6 @@ import classes.data_prep as prep
 import classes.gp as gp
 import classes.data_visualisation as visualisation
 import classes.optimisation as optimisation
-import classes.gillespie as gillespie
 
 # todo: Currently holding a Model Selection thought: shall I have control cells as inputs too such that they can help balance
 #       the model selection process? Or, if I run two separate model selections for control vs observed data does that change inference?
@@ -70,11 +69,12 @@ class ModelSelection():
         number_of_parameters = 4  # As we have alpha, beta and variance and noise
         number_of_observations = len(observed_timepoints)
 
+        par_cell_osc = np.zeros((number_of_parameters, number_of_observed_cells))
         par_cell_non_osc = np.zeros((number_of_parameters, number_of_observed_cells))
         loglik_cell_non_osc = np.zeros((number_of_observed_cells))
         loglik_cell_osc = np.zeros((number_of_observed_cells))
         llikelihood_ratio_observed_cells = np.zeros((number_of_observed_cells))
-        normalised_llikelihood_ratio_observed_cells = np.zeros((number_of_observed_cells))
+        # normalised_llikelihood_ratio_observed_cells = np.zeros((number_of_observed_cells))
 
         # First Loop Deals Fitting OUosc and OU GP, Storing Results and Calculating LLR from each Observed Cell
 
@@ -85,19 +85,19 @@ class ModelSelection():
             self.optim_osc = optimisation.Optimisation(oscillatory = True, observed_timepoints = observed_timepoints, observed_y = cells[:,i])
             op_cell_osc = self.optim_osc.optimizing_neg_marginal_loglikelihood(initial_guess)
 
+            par_cell_osc[:,i] = op_cell_osc.x
             par_cell_non_osc[:,i] = op_cell_non_osc.x
             loglik_cell_non_osc[i] = - op_cell_non_osc.fun
             loglik_cell_osc[i] = - op_cell_osc.fun
             llikelihood_ratio_observed_cells[i] = 2*(loglik_cell_osc[i] - loglik_cell_non_osc[i])
             # Normalisation as described in project is (LLR/length of data) * 100
-            normalised_llikelihood_ratio_observed_cells[i] = np.divide(llikelihood_ratio_observed_cells[i],number_of_observed_cells*number_of_observations)*100
+            # normalised_llikelihood_ratio_observed_cells[i] = np.divide(llikelihood_ratio_observed_cells[i],number_of_observed_cells*number_of_observations)*100
 
         print("Completed Fitting of", number_of_observed_cells, "Observed Cells")
 
         # Second Loop Deals with Synthetic Cells Generation to Approximate LLR Distribution
 
         number_of_synth_cell_per_observed_cell = round(number_of_synthetic_cells/number_of_observed_cells)
-        # synthetic_data = np.zeros((number_of_observations, number_of_synth_cell_per_observed_cell)) should not be needed
         synthetic_cells = np.zeros((number_of_observed_cells, number_of_observations, number_of_synth_cell_per_observed_cell))
         for cell in range(number_of_observed_cells):
             self.gp = gp.GP(alpha = par_cell_non_osc[0,cell], beta = par_cell_non_osc[1,cell], variance = par_cell_non_osc[2,cell], noise = par_cell_non_osc[3, cell], oscillatory = False)
@@ -111,34 +111,40 @@ class ModelSelection():
 
         llikelihood_ratio_synth_cells = np.zeros((number_of_synth_cell_per_observed_cell*number_of_observed_cells))
         i = -1
+        j = 0
         for cell in range(number_of_observed_cells):
             for synth_cell in range(number_of_synth_cell_per_observed_cell):
                 i = i + 1
-                self.optim_non_osc = optimisation.Optimisation(oscillatory = False, observed_timepoints = observed_timepoints, observed_y = synthetic_cells[cell,:,synth_cell])
-                neg_llik_synth_non_osc = self.optim_non_osc.optimizing_neg_marginal_loglikelihood(initial_guess).fun
-                self.optim_osc = optimisation.Optimisation(oscillatory = True, observed_timepoints = observed_timepoints, observed_y = synthetic_cells[cell,:,synth_cell])
-                neg_llik_synth_osc = self.optim_osc.optimizing_neg_marginal_loglikelihood(initial_guess).fun
-                llikelihood_ratio_synth_cells[i] = 2*((-neg_llik_synth_osc) - (-neg_llik_synth_non_osc))
-            # print("Completed Fitting of OUosc and OU GP on Synthetic, Storing Results and Calculating LLR from Observed Cell", cell + 1)
+                try:
+                    self.optim_non_osc = optimisation.Optimisation(oscillatory = False, observed_timepoints = observed_timepoints, observed_y = synthetic_cells[cell,:,synth_cell])
+                    neg_llik_synth_non_osc = self.optim_non_osc.optimizing_neg_marginal_loglikelihood(initial_guess).fun
+                    self.optim_osc = optimisation.Optimisation(oscillatory = True, observed_timepoints = observed_timepoints, observed_y = synthetic_cells[cell,:,synth_cell])
+                    neg_llik_synth_osc = self.optim_osc.optimizing_neg_marginal_loglikelihood(initial_guess).fun
+                    llikelihood_ratio_synth_cells[i] = 2*((-neg_llik_synth_osc) - (-neg_llik_synth_non_osc))
+                # print("Completed Fitting of OUosc and OU GP on Synthetic, Storing Results and Calculating LLR from Observed Cell", cell + 1)
+                except Exception as e:
+                    j = j + 1
+                    print(j, "synthetic cells could not be optimised out of the total", number_of_synthetic_cells)
+                    print("The Error associated with it is :", e)
 
         print("Completed Fitting of OUosc and OU GP on", number_of_synthetic_cells," Synthetic Cells, storing their results and calculating LLRs")
 
-        # If Statement Deals with Normalising LLRs
+        # Setting negative LLRs to zero.
 
-        # Don't think this is needed anymore, normalisation included in first for loop
-        # if normalise:
-        #    llikelihood_ratio_observed_cells_normalised = np.divide(llikelihood_ratio_observed_cells,number_of_observed_cells*number_of_observations)*100
-        #    #llikelihood_ratio_synthetic_cells_normalised = np.divide(llikelihood_ratio_synth_cells,number_of_synthetic_cells*number_of_observations)*100
-        #    LLR = np.array((llikelihood_ratio_observed_cells_normalised, llikelihood_ratio_synth_cells)) #, llikelihood_ratio_synthetic_cells_normalised))
-        #else:
-        #    LLR = np.array((llikelihood_ratio_observed_cells, llikelihood_ratio_synth_cells))
+        llikelihood_ratio_observed_cells[llikelihood_ratio_observed_cells<0] = 0
+        # normalised_llikelihood_ratio_observed_cells[normalised_llikelihood_ratio_observed_cells<0] = 0
+        llikelihood_ratio_synth_cells[llikelihood_ratio_synth_cells<0] = 0
 
-        LLR = np.array((normalised_llikelihood_ratio_observed_cells, llikelihood_ratio_synth_cells))
+        # Storing LLRs and Optimised Parameters.
+
+        LLR = np.array((llikelihood_ratio_observed_cells, llikelihood_ratio_synth_cells))
+        # LLR = np.array((normalised_llikelihood_ratio_observed_cells, llikelihood_ratio_synth_cells))
+        optim_params = np.vstack((par_cell_osc, par_cell_non_osc))
 
         end_time = time.time()
         print("Execution time:", end_time-start_time)
 
-        return LLR
+        return LLR, optim_params
 
     def distribution_of_proportion_of_non_osc_cells(self, LLR, number_of_observed_cells, number_of_synthetic_cells):
         '''
@@ -245,7 +251,7 @@ class ModelSelection():
         min_LLR = max_LLR - 0.9*(max_LLR - min_LLR)
         tuning_parameters = np.linspace(min_LLR, max_LLR, 50)
 
-        splinefit = csaps.CubicSmoothingSpline(tuning_parameters, pi_0, smooth = 0.5)
+        splinefit = csaps.CubicSmoothingSpline(tuning_parameters, pi_0, smooth = 0.35)
         x_test = np.linspace(min_LLR, max_LLR, 50)
         y_test = splinefit(x_test)
         results = ((x_test, y_test))
@@ -357,6 +363,8 @@ class ModelSelection():
 
         # Step 1. and 2.
         LLRs = self.approximation_of_LLRs(observed_timepoints, observed_cells, number_of_observed_cells, number_of_synthetic_cells, initial_guess)
+        optim_parameters = LLRs[1]
+        LLRs = LLRs[0]
 
         # Optional: Distribution Plot
         DistributionPlot = self.visualisation.LLR_distribution_plot(LLRs[0], LLRs[1])
@@ -381,7 +389,7 @@ class ModelSelection():
         print("With a control q-value of", control_q_value, ",", passed, "out of", number_of_observed_cells,
               "cells from the data exceed the LLR threshold and are classified as oscillatory")
 
-        return LLRs, q_values, DistributionPlot, QValuesPlot
+        return LLRs, optim_parameters, q_values, DistributionPlot, QValuesPlot
 
     def model_selection_with_control(self, observed_timepoints, control_cells, observed_cells, number_of_synthetic_cells, control_q_value = 0.05, initial_guess = [0.001, 0.0, 0.001, 0.001]):
         """
@@ -409,8 +417,6 @@ class ModelSelection():
         Returns
         -------
 
-
-
         """
 
         try:
@@ -422,6 +428,8 @@ class ModelSelection():
 
         # Step 1. and 2.
         LLRs = self.approximation_of_LLRs(observed_timepoints, cells, number_of_observed_cells + number_of_control_cells, number_of_synthetic_cells, initial_guess)
+        optim_parameters = LLRs[1]
+        LLRs = LLRs[0]
 
         # Optional: Distribution Plot
         observed_LLRs = LLRs[0][0:number_of_observed_cells]
@@ -461,7 +469,7 @@ class ModelSelection():
         # print("With a control q-value of", control_q_value, ",", passed, "out of", number_of_control_cells,
         #       "cells from the control group exceed the LLR threshold and are classified as oscillatory")
 
-        return LLRs, q_values, DistributionPlot, QValuesPlot
+        return LLRs, optim_parameters, q_values, DistributionPlot, QValuesPlot
 
     # NOTE: The following functions are equivalents of the above but taking a different input (ie a list not array)
 
@@ -588,7 +596,7 @@ class ModelSelection():
 
         # Setting negative LLRs to zero or will cause problems down the line.
         llikelihood_ratio_observed_cells[llikelihood_ratio_observed_cells<0] = 0
-        normalised_llikelihood_ratio_observed_cells[normalised_llikelihood_ratio_observed_cells<0] = 0
+        # normalised_llikelihood_ratio_observed_cells[normalised_llikelihood_ratio_observed_cells<0] = 0
         llikelihood_ratio_synth_cells[llikelihood_ratio_synth_cells<0] = 0
 
         # Store Results Away

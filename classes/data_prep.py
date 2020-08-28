@@ -446,7 +446,6 @@ class Detrending():
         """
 
         duration = round(float(observed_timepoints[-1]))
-
         test_timepoints = np.linspace(0, duration, 500)
         test_timepoints = np.unique(np.sort(np.hstack((test_timepoints, observed_timepoints.ravel()))))
         # This way we make sure test_timepoints contain a number of timepoints, including the observed ones!

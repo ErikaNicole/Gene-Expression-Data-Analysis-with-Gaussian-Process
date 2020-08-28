@@ -11,7 +11,6 @@ import classes.data_prep as prep
 import classes.gp as gp
 import classes.data_visualisation as visualisation
 import classes.optimisation as optimisation
-import classes.gillespie as gillespie
 import classes.model_selection as model_selection
 from matplotlib.backends.backend_pdf import PdfPages
 

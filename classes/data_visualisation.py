@@ -605,7 +605,7 @@ class Visualisation_DataPrep():
         Parameters:
         ----------
 
-        normalised_cell_data: ndarray
+        normalised_cell_data: ndarray or list
             This data can be retrieved directly from the other data prep functions.
 
         Returns:
@@ -615,7 +615,12 @@ class Visualisation_DataPrep():
             Plot of Detrended Data, Original Signal and GP with SE covariance function fit.
         """
 
-        detrending = self.prep.detrend_data(observed_timepoints = time, data_to_detrend = normalised_cell_data)
+        if isinstance(normalised_cell_data, np.ndarray):
+            detrending = self.prep.detrend_data(observed_timepoints = time, data_to_detrend = normalised_cell_data)
+        else:
+            print("Function not ready to take list input")
+            # detrending = self.prep.detrend_data_from_list(observed_timepoints = time, data_to_detrend = normalised_cell_data)
+
         detrended_data = detrending[0]
         trendfit_x = detrending[1]
         trendfit_y = detrending[2]
