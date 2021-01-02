@@ -147,8 +147,8 @@ if single_cell_answer == 'yes':
     print("OU - The optimised hyperparameter alpha:", optim.x[0])
     print("OU - The optimised hyperparameter variance:", optim.x[2])
     print("OU - The optimised hyperparameter noise:", optim.x[3])
-    fit_OUosc = visualisation.Visualisation_GP(optim.x[0], optim.x[1], optim.x[2], optim.x[3], False, observed_timepoints_of_cell, observed_cell)
-    fit_OUosc = fit_OUosc.gp_ou_trace_3subplot(observed_timepoints_of_cell[-1], 500, 2)
+    fit_OU = visualisation.Visualisation_GP(optim.x[0], optim.x[1], optim.x[2], optim.x[3], False, observed_timepoints_of_cell, observed_cell)
+    fit_OU = fit_OU.gp_ou_trace_3subplot(observed_timepoints_of_cell[-1], 500, 2)
     visualisation.Visualisation_Optimiser(False, observed_timepoints_of_cell, observed_cell, optim)
     plt.show(block = True)
 
