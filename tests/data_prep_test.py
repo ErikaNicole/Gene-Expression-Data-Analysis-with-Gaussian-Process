@@ -8,7 +8,7 @@ import classes.data_prep as data_prep
 
 my_path = os.path.dirname(os.path.realpath('__file__'))
 
-class Test_data_prep(unittest.TestCase):
+class Test_Data_Prep(unittest.TestCase):
 
     def setUp(self):
 
