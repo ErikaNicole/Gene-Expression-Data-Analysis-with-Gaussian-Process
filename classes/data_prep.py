@@ -256,6 +256,7 @@ class Detrending():
 
         # Cannot use same optimisation as other problem since I'm not actually optimising 4 parameters,
         # hence will need another class.
+
         optim = optimisation.Optimisation_SE(observed_timepoints, observed_y)
         optim = optim.optimizing_neg_marginal_loglikelihood([start_alpha, start_variance, start_noise], cholesky_decompose = False)
 

@@ -18,12 +18,12 @@ class Test_data_prep(unittest.TestCase):
         self.observed_x = np.array([self.test_x[np.arange(0, 500, 10)]]).T
         self.observed_y = np.array([self.test_y[np.arange(0, 500, 10)]]).T
 
-        # Introduce three different trends (linear) on the same observed data
+        # Introduce three different trends on the same observed data
         self.data = np.hstack((self.observed_y, self.observed_y))
         self.data = np.hstack((self.data, self.observed_y))
         for i in range(50):
             self.data[i,0] = self.data[i,0] + i*0.15
-            self.data[i,1] = self.data[i,1] + np.sin(0.05*self.observed_x[i, 0])
+            self.data[i,1] = self.data[i,1] + np.sin(0.2*self.observed_x[i, 0])
             self.data[i,2] = self.data[i,2] + np.exp(0.01*self.observed_x[i, 0])
 
     def test_dimensionality_output(self):
@@ -68,6 +68,7 @@ class Test_data_prep(unittest.TestCase):
         detrended_data, test_timepoints, fits = detrending.detrend_data(self.observed_x, self.data, True)
 
         fig = plt.figure("detrending test", figsize = (10,6))
+        plt.plot(self.observed_x, self.observed_y, color = 'red', label = "True Detrended Signal", ls ='--')
         for i in range(3):
             optim = detrending.optimise_SE_trace(0.001, 0.001, 0.001, self.observed_x, self.data[:,i])
             print("optimised parameters for detrending used were", optim)

@@ -337,7 +337,7 @@ class Optimisation_SE():
 
             raise(ValueError("Observed Timepoints and Observed Y must be the same size."))
 
-    def optimizing_neg_marginal_loglikelihood(self, start_values, method = 'L-BFGS-B', bounds = ((1e-10, None), (1e-10, None), (1e-10, None)), cholesky_decompose = True):
+    def optimizing_neg_marginal_loglikelihood(self, start_values, method = 'L-BFGS-B', bounds = ((1e-10, np.exp(-4)), (1e-10, None), (1e-10, None)), cholesky_decompose = True):
         ''' Minimises the negative marginal log likelihood with respect to the Hyper Parameters of the OU Function Matrix.
             The parameters estimated are alpha, beta and variance respectively which are returned by the optimizer.
 
@@ -384,7 +384,11 @@ class Optimisation_SE():
                 Bounds given for L-BFGS-B Method such that parameters are strictly positive - always yields successful result.
                 Bounds given for TNC Method such that parameters are strictly positive - always yields successful result.
 
-                Example Bounds - ((1e-10, None), (1e-10, None), (1e-10, None))
+                Example Bounds - ((1e-10, exp(-4)), (1e-10, None), (1e-10, None))
+
+                The upper bound of alpha of exp(-4) is shown to be the preferable upper bound in the original paper.
+                This is because we let the de-trending fitted line to be flexible enough to capture the long term trends
+                but without risking to remove the oscillatory signal from the time series.
 
                 Generally - Setting strictly positive (1e-10, None) for alpha stops the optimizer from failing in most cases.
 

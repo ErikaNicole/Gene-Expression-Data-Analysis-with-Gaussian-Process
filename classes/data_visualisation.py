@@ -5,9 +5,11 @@ import classes.optimisation as optimisation
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
 from mpl_toolkits import mplot3d
 
 sns.set_style("whitegrid")
+my_path = os.getcwd()
 
 # todo: include trace in the returns, to be able to access the data the plot came from.
 
@@ -494,13 +496,14 @@ class Visualisation_ModelSelection():
             results of control cells and observed cells.
         """
 
-        Plot, ax = plt.subplots(ncols=2, nrows=1, constrained_layout=True)
+        Plot, ax = plt.subplots(ncols=2, nrows=1, constrained_layout=True,  figsize = (12,8))
         # 1st plot of observed oscillating cells
         ax[0].hist(observed_LLRs)
         ax[0].set(title = "Observed LLRs Distribution", ylabel = "Frequency", xlabel = "LLR")
         # 2rd plot of null hypothesis - population of non-oscillating cells
         ax[1].hist(synthetic_LLRs)
         ax[1].set(title = "Synthetic LLRs Distribution", ylabel = "Frequency", xlabel = "LLR")
+        Plot.savefig(os.path.join(my_path, "results/LLR_Distribution_Plot.pdf"))
 
         return Plot
 
@@ -578,13 +581,14 @@ class Visualisation_ModelSelection():
 
         """
 
-        Fig = plt.figure('q-values plot')
+        Fig = plt.figure('q-values plot',  figsize = (10,6))
         plt.ylabel("Q-Values")
         plt.xlabel("Threshold")
         plt.scatter(np.sort(LLRs), q_est)
         plt.axhline(control_q_value, color = 'red')
         plt.ylim([-0.1,1])
         plt.title("Q-Value Distribution depending on different threshold values")
+        Fig.savefig(os.path.join(my_path, "results/q_values_plot.pdf"))
 
         return Fig
 
