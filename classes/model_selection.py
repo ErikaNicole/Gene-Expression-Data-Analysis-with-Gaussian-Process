@@ -1,11 +1,14 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import os
 import time
 import csaps
 import classes.data_prep as prep
 import classes.gp as gp
 import classes.data_visualisation as visualisation
 import classes.optimisation as optimisation
+
+my_path = os.path.dirname(os.path.realpath('__file__'))
 
 # todo: Currently holding a Model Selection thought: shall I have control cells as inputs too such that they can help balance
 #       the model selection process? Or, if I run two separate model selections for control vs observed data does that change inference?

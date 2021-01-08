@@ -224,3 +224,5 @@ class GP():
             else:
                 raise(ValueError("Observed Timepoints and Observed Y must be the same size."))
 
+# todo : may make more sense to have a second class GP_SE
+#        instead of containing the Squared Exponential functions in the detrending class

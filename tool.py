@@ -14,6 +14,8 @@ import classes.optimisation as optimisation
 import classes.model_selection as model_selection
 from matplotlib.backends.backend_pdf import PdfPages
 
+my_path = os.getcwd()
+
 #### Step 1. Data Input ---> uses class Data_Input()
 
 print(" - - - Data Input Stage.")
@@ -53,14 +55,21 @@ time = time.to_numpy()[2:len(time)]     #Store Time into a numpy array. #todo: c
 if time_conversion_answer == 'yes':
     time = time/(60*60*1000)                #Convert from ms to hours
 
+if control_cells_answer == 'yes':
+    control_times = df_control.iloc[:,0]
+    control_times = control_times.to_numpy()[2:len(control_times)]
+    if time_conversion_answer == 'yes':
+        control_times = control_times/(60*60*1000)
+
 # Optional Plot - Data Input
-Plot1 = plt.figure("Observed Data Input")
+Plot1 = plt.figure("Observed Data Input",  figsize = (10,6))
 for cell in range(number_of_observed_cells):
     plt.plot(time[0:len(observed_cells[cell])], observed_cells[cell])
 plt.title(" Observed Data Input ")
 plt.xlabel(" Time (hours) ")
 plt.ylabel(" Gene Expression Level ")
 plt.show(block = False)
+Plot1.savefig(os.path.join(my_path, "results/Initial Data Visualisation.pdf"))
 
 # - -
 
@@ -70,13 +79,14 @@ norm_answer = input("yes or no? ")
 if norm_answer == 'yes':
     normalised_cells = prep.Normalisation().normalise_many_cells_from_list(observed_cells)
     # Optional Plot - Normalised Cells
-    Plot1 = plt.figure("Normalised Observed Data")
+    Plot1 = plt.figure("Normalised Observed Data",  figsize = (10,6))
     for cell in range(number_of_observed_cells):
         plt.plot(time[0:len(observed_cells[cell])], normalised_cells[cell])
     plt.title("Normalised Data Input")
     plt.xlabel(" Time (hours) ")
     plt.ylabel(" Gene Expression Level ")
     plt.show(block = False)
+    Plot1.savefig(os.path.join(my_path, "results/Initial Data Visualisation.pdf"))
 
     if control_cells_answer == 'yes':
         normalised_control_cells = prep.Normalisation().normalise_many_cells_from_list(control_cells)
@@ -87,23 +97,24 @@ print(" - - - Does the data need to be detrended? - - - ")
 detrending_answer = input("yes or no? ")
 
 if detrending_answer == 'yes':
-    print(" - - - Which detrending parameter do you wish to use? - - - ")
-    print(" - - - Recommended: 0.0001")
+    print(" - - - Which detrending parameter starting value do you wish to use? - - - ")
+    print(" - - - Recommended: np.exp(-2)")
     print(" - - - Note: if unsure about the detrending process using Gaussian Processes check out the docs.")
-    detrending_parameter = float(input("Input Detrending Parameter Alpha : "))
-    detrended_data = prep.Detrending(alpha = detrending_parameter).detrend_data_from_list(time, normalised_cells)[0]
+    init_detrending_parameter = float(input("Input Detrending Parameter Alpha : "))
+    detrended_data = prep.Detrending(alpha = init_detrending_parameter).detrend_data_from_list(time, normalised_cells)[0]
 
     # Optional Plot - Detrended Cells
-    Plot2 = plt.figure("Detrended Observed Data")
+    Plot2 = plt.figure("Detrended Observed Data",  figsize = (10,6))
     for cell in range(number_of_observed_cells):
         plt.plot(time[0:len(observed_cells[cell])], detrended_data[cell])
     plt.title(" Detrended Observed Data")
     plt.xlabel(" Time (hours) ")
     plt.ylabel(" Gene Expression Level ")
     plt.show(block = True)
+    Plot2.savefig(os.path.join(my_path, "results/Detrended Observed Data.pdf"))
 
     if control_cells_answer == 'yes':
-        detrended_control_data = prep.Detrending(alpha = detrending_parameter).detrend_data_from_list(time, normalised_control_cells)[0]
+        detrended_control_data = prep.Detrending(alpha = init_detrending_parameter).detrend_data_from_list(control_times, normalised_control_cells)[0]
 
 # - -
 
@@ -147,8 +158,8 @@ if single_cell_answer == 'yes':
     print("OU - The optimised hyperparameter alpha:", optim.x[0])
     print("OU - The optimised hyperparameter variance:", optim.x[2])
     print("OU - The optimised hyperparameter noise:", optim.x[3])
-    fit_OUosc = visualisation.Visualisation_GP(optim.x[0], optim.x[1], optim.x[2], optim.x[3], False, observed_timepoints_of_cell, observed_cell)
-    fit_OUosc = fit_OUosc.gp_ou_trace_3subplot(observed_timepoints_of_cell[-1], 500, 2)
+    fit_OU = visualisation.Visualisation_GP(optim.x[0], optim.x[1], optim.x[2], optim.x[3], False, observed_timepoints_of_cell, observed_cell)
+    fit_OU = fit_OU.gp_ou_trace_3subplot(observed_timepoints_of_cell[-1], 500, 2)
     visualisation.Visualisation_Optimiser(False, observed_timepoints_of_cell, observed_cell, optim)
     plt.show(block = True)
 
@@ -168,10 +179,18 @@ beta_start = input("Input Optimisation Starting Value Beta : ")
 variance_start = input("Input Optimisation Starting Value Variance : ")
 noise_start = input("Input Optimisation Starting Value Noise : ")
 
-if control_cells_answer != 'yes':
-    modelselection = model_selection.ModelSelection().model_selection_for_list_new(observed_timepoints = time, observed_cells = detrended_data, number_of_synthetic_cells = synthetic_cells_answer, control_q_value = control_q_value_answer, initial_guess = [alpha_start, beta_start, variance_start, noise_start])
-else:
-    modelselection = model_selection.ModelSelection().model_selection_for_list_new_with_control(observed_timepoints = time, control_cells = detrended_control_data, observed_cells = detrended_data, number_of_synthetic_cells = synthetic_cells_answer, control_q_value = control_q_value_answer, initial_guess = [alpha_start, beta_start, variance_start, noise_start])
+modelselection = model_selection.ModelSelection().model_selection_for_list_new(observed_timepoints = time,
+                                                                               observed_cells = detrended_data,
+                                                                               number_of_synthetic_cells = synthetic_cells_answer,
+                                                                               control_q_value = control_q_value_answer,
+                                                                               initial_guess = [alpha_start, beta_start, variance_start, noise_start])
+
+if control_cells_answer == 'yes':
+    modelselection_control = model_selection.ModelSelection().model_selection_for_list_new(observed_timepoints = control_times,
+                                                                               observed_cells = detrended_control_data,
+                                                                               number_of_synthetic_cells = synthetic_cells_answer,
+                                                                               control_q_value = control_q_value_answer,
+                                                                               initial_guess = [alpha_start, beta_start, variance_start, noise_start])
 
     # print(" - - - First, observed cells execution of model selection - - -")
     # modelselection_observed = model_selection.ModelSelection().model_selection_for_list(observed_timepoints = time, observed_cells = detrended_data, number_of_synthetic_cells = synthetic_cells_answer, control_q_value = control_q_value_answer, initial_guess = [alpha_start, beta_start, variance_start, noise_start])

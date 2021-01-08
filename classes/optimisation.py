@@ -1,6 +1,7 @@
 # Class to carry out Hyper Parameter Estimation
 
 import classes.gp as gp
+import classes.data_prep as data_prep
 import numpy as np
 from scipy.optimize import minimize
 from numpy.linalg import cholesky, det, lstsq, inv
@@ -271,6 +272,154 @@ class Optimisation():
         else:
             return res
 
+# separate class necessary since the parameters theta for the optimisation do not include beta
+# todo : likely possible to have all this under the same class and just let the type of covariate function be an input,
+#        but not strictly necessary.
+class Optimisation_SE():
+
+    def __init__(self, observed_timepoints, observed_y):
+        """
+        observed_timepoints : vector
+            The vector of training inputs which have been observed.
+            It takes vector inputs as a number of observations are needed to train the model well.
+            Size of the vector |x| = N.
+            observed_x and observed_y must have the same size.
+
+        observed_y: vector
+            The vector of training inputs which have been observed. Can be noisy data.
+            Size of the vector |y| = N.
+            x and y must have the same size.
+        """
+        self.observed_timepoints = observed_timepoints
+        self.observed_y = observed_y
+        return
+
+    def neg_marginal_loglikelihood(self, theta, cholesky_decompose = True):
+        '''
+        Returns a function that computes the negative log marginal likelihood for training data observed_x and observed_y,
+        suitable for the parameters of the Squared Exponential covariance function.
+
+        Parameters:
+
+            theta: ndarray
+            The vector containing the values to be updated for the optimization algorithm chosen to find an optima.
+            Such values, being the hyper parameters, are always printed in this order:
+                                        [alpha, variance, noise]
+
+            cholesky_decompose : boolean
+            Default is True: constructs predictor and trains model using the cholesky decomposition of the Covariance Matrix.
+            This is computationally more efficient and follows the Algorithm 2.1 as detailed in Rasmussen & Williams, 2006.
+
+        Returns:
+            Minimization objective.
+        '''
+
+        N = len(self.observed_timepoints)
+
+        if len(self.observed_timepoints) == N and len(self.observed_y) == N:
+
+            self.alpha, self.variance, self.noise = theta[0], theta[1], theta[2]
+            self.GP_SE = data_prep.Detrending(self.alpha, self.variance, self.noise)
+
+            cov_matrix_y = np.add(self.GP_SE.cov_matrix_SE(self.observed_timepoints, self.observed_timepoints), np.eye(len(self.observed_timepoints)) * self.noise**2)
+
+            if cholesky_decompose:
+
+                L = cholesky(cov_matrix_y, lower = True)
+                alpha = cho_solve((L, True), self.observed_y)
+                return -(-0.5*self.observed_y.T.dot(alpha) - np.trace(np.log(L)) - N/2.0*np.log(2*np.pi))
+
+            else:
+
+                return 0.5 * np.log(det(cov_matrix_y)) + 0.5 * self.observed_y.T.dot(inv(cov_matrix_y).dot(self.observed_y)) + 0.5 * len(self.observed_timepoints) * np.log(2*np.pi)
+
+        else:
+
+            raise(ValueError("Observed Timepoints and Observed Y must be the same size."))
+
+    def optimizing_neg_marginal_loglikelihood(self, start_values, method = 'L-BFGS-B', bounds = ((1e-10, np.exp(-4)), (1e-10, None), (1e-10, None)), cholesky_decompose = True):
+        ''' Minimises the negative marginal log likelihood with respect to the Hyper Parameters of the OU Function Matrix.
+            The parameters estimated are alpha, beta and variance respectively which are returned by the optimizer.
+
+                        Hyper parameters in both inputs and outputs are always printed in this order:
+                                                [alpha, variance, noise]
+
+            The optimization occurs via the scipy.optimize.minimize library.
+            For reference check: https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.minimize.html
+
+            The optimization takes place on the function 'neg_marginal_loglikelihood'.
+
+        start_values: vector
+            The starting points for the optimization algorithm chosen.
+            Due to risk of optimizer incurring in local minima it is important a sensible choice of starting values is made.
+            Note that the start_values vector should be of size 3, one per hyper parameter.
+
+        cholesky_decompose : boolean
+            Default is True: constructs predictor and trains model using the cholesky decomposition of the Covariance Matrix.
+            This is computationally more efficient and follows the Algorithm 2.1 as detailed in Rasmussen & Williams, 2006.
+
+            todo: doublecheck with Jochen about this point. Keeps coming up.
+            Warning: if incurring in error numpy.linalg.LinAlgError: -th leading minor of the array is not positive definite
+                     you may take that as being an error with reference to the covariance matrix and the function struggling
+                     to get a cholesky decomposition of it, as the OU Process produces a semi-positive definite matrix.
+
+        method: string
+            method used in optimizer to carry out computation.
+            For a complete list of methods supported by optimizers consult:
+            https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.minimize.html
+
+            Default is L-BFGS-B.
+
+        bounds: tuple
+            Bounds on variables for L-BFGS-B, TNC, SLSQP, Powell, and trust-constr methods.
+
+            How to specify the bounds:
+            n-tuple must have n to be equivalent to the number of parameters estimated.
+            Hence, here tuple must be of size 3 for alpha, variance and noise.
+            Construct as a sequence of (min, max) pairs for each element to be estimated.
+
+            Default is None, which is used to specify no bound.
+
+            Note:
+                Bounds given for L-BFGS-B Method such that parameters are strictly positive - always yields successful result.
+                Bounds given for TNC Method such that parameters are strictly positive - always yields successful result.
+
+                Example Bounds - ((1e-10, exp(-4)), (1e-10, None), (1e-10, None))
+
+                The upper bound of alpha of exp(-4) is shown to be the preferable upper bound in the original paper.
+                This is because we let the de-trending fitted line to be flexible enough to capture the long term trends
+                but without risking to remove the oscillatory signal from the time series.
+
+                Generally - Setting strictly positive (1e-10, None) for alpha stops the optimizer from failing in most cases.
+
+        Returns:
+        --------
+
+        res : OptimizeResult Object
+            Returns the object of an optimization run, for more details on each outputs meaning check out:
+            https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.minimize.html
+
+            Of particular importance:
+            fun: specifies the optimized negative log marginal likelihood for the training data specified and the chosen
+                 hyper parameters.
+            x:   estimated hyper parameters, alpha, beta, variance and noise respectively.
+
+            To extract: hyperparameters estimates from OptimizeResult Object use .x
+        '''
+
+        if len(start_values) != 3:
+            raise(ValueError('start_values input must be of size 3 for alpha, variance and noise respectively'))
+
+        if isinstance(method, str):
+            if method == 'L-BFGS-B' or method == 'TNC' or method == 'Powell' or method == 'SLSQP':
+                res = minimize(self.neg_marginal_loglikelihood, args = (cholesky_decompose), x0 = start_values, bounds = bounds, method = method)
+            else:
+                if bounds != None:
+                    raise(ValueError('bounds cannot be passed with this method.'))
+                res = minimize(self.neg_marginal_loglikelihood, args = (cholesky_decompose), x0 = start_values, method = method)
+        else:
+            raise(ValueError('method input must be a string.'))
+        return res
 
 
 

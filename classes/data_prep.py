@@ -5,12 +5,13 @@ import os
 from openpyxl import Workbook
 from numpy.linalg import cholesky, det, lstsq, inv
 from scipy.linalg import cholesky, cho_solve
+import classes.optimisation as optimisation
 
-    # todo: check possible small 'bug' in Detrending() __init__ inputs.
-    #       I get a cholesky runtime error for the positive-definitiveness.
-    #       I think it all comes down to the need for a 'jitter' in the evaluation of the covariance matrix
-    #       In the Stan models a jitter was explicitly added and so it needs to be added here.
-    #       Ask jochen. Shall I do so? Also there's reason to believe this needs to be checked elsewhere too.
+# todo: check possible small 'bug' in Detrending() __init__ inputs.
+#       I get a cholesky runtime error for the positive-definitiveness.
+#       I think it all comes down to the need for a 'jitter' in the evaluation of the covariance matrix
+#       In the Stan models a jitter was explicitly added and so it needs to be added here.
+#       Ask jochen. Shall I do so? Also there's reason to believe this needs to be checked elsewhere too.
 
 class Data_Input():
 
@@ -154,11 +155,11 @@ class Normalisation():
 
     #    return noise
 
+# todo : does it make sense to have as init values the parameter values? Maybe not since I should be optimising them
 class Detrending():
 
     def __init__(self, alpha, variance = 1.0, noise = 0.001):
         """
-
         alpha: float
             The alpha-parameter of the SE process, time scale of fluctuations.
             This parameter controls how long fluctuations are correlated in time ('dampening' parameter').
@@ -168,7 +169,6 @@ class Detrending():
             Variance of the SE process.
             This parameter controls the amplitude of the fluctuations.
             Corresponds to sigma^2 (not sigma!) in the Rasmussen (2006).
-
         """
         self.alpha = alpha
         self.variance = variance
@@ -224,8 +224,9 @@ class Detrending():
         --------
 
         trace : ndarray
-            This array has shape (number_of_observations,2), where the first column contains time points, and the second columns
-            contains function values of the OU process.
+            This array has shape (number_of_observations, number_of_traces + 1)
+            where, the first column contains time points,
+                   the other columns contains function values of the SE process.
         '''
 
         KXX = self.cov_matrix_SE(test_timepoints, test_timepoints)
@@ -233,13 +234,33 @@ class Detrending():
 
         path = np.random.multivariate_normal(mean, KXX, number_of_traces)
 
-        trace = np.zeros((len(test_timepoints),number_of_traces+1))
+        trace = np.zeros((len(test_timepoints),number_of_traces + 1))
 
         trace[:,0] = test_timepoints
         for index, path in enumerate(path):
             trace[:,index + 1] = path
 
         return trace
+
+    # todo : note cholesky decompose false here it was giving errors
+    def optimise_SE_trace(self, start_alpha, start_variance, start_noise, observed_timepoints, observed_y):
+        """
+
+        :param start_alpha:
+        :param start_variance:
+        :param start_noise:
+        :param observed_timepoints:
+        :param observed_y:
+        :return:
+        """
+
+        # Cannot use same optimisation as other problem since I'm not actually optimising 4 parameters,
+        # hence will need another class.
+
+        optim = optimisation.Optimisation_SE(observed_timepoints, observed_y)
+        optim = optim.optimizing_neg_marginal_loglikelihood([start_alpha, start_variance, start_noise], cholesky_decompose = False)
+
+        return optim.x
 
     def fit_SE(self, observed_timepoints, observed_y, test_timepoints, number_of_traces = 1, cholesky_decompose = True): #,duration = None, number_of_observations = None):
             ''' Generate a posterior trace from the Squared Exponential (Se) Covariate Function.
@@ -293,6 +314,12 @@ class Detrending():
                 This array has shape (number_of_observations,number_of_traces+2), where the first column contains time points, the second column
                 contains function values of the mean predictor of the OU process and the following column(s) contains function values of the sampled predictors.
             '''
+
+            # todo : check dimensionality of input (properly complete check, needs to be row vector)
+            if len(np.shape(observed_timepoints)) == 2 and np.shape(observed_timepoints)[1] == 1:
+                observed_timepoints = observed_timepoints.T[0]
+            if len(np.shape(observed_y)) == 2 and np.shape(observed_y)[1] == 1:
+                observed_y = observed_y.T[0]
 
             N = len(observed_timepoints)
 
@@ -370,6 +397,11 @@ class Detrending():
 
         """
 
+        # todo : check dimensionality of input (properly complete check)
+        if len(np.shape(observed_timepoints)) == 2 and np.shape(observed_timepoints)[1] == 1:
+            # means observed_timepoints is ndarray: (n, 1) ie a column vector
+            observed_timepoints = observed_timepoints.T[0]
+
         duration = round(float(observed_timepoints[-1]))
 
         test_timepoints = np.linspace(0, duration, 500)
@@ -387,14 +419,17 @@ class Detrending():
             # First loop is made to carry out different fittings for each cell, hence yielding different predictors.
             for cell in range(number_of_cells):
                 observed_cell = data_to_detrend[:,cell]
-                # I want to ideally have the fit to be evaluated at more points than my actual observations.
+
+                # Include optimisation step of parameters.
+                self.alpha, self.variance, self.noise = self.optimise_SE_trace(self.alpha, self.variance, self.noise,
+                                                                               observed_timepoints, observed_cell)
+                # I want to ideally have the fit to be evaluated at more points than my actual observations,
                 # I can then detrend and hopefully get my timepoints to match up.
                 fits[:, cell] = self.fit_SE(observed_timepoints, observed_cell, test_timepoints, 1, cholesky_decompose)[:,1]
 
             # Of course predictor has a lot more points than the observed one,
             # This loop gives me the indices of test_timepoints corresponding to the equivalent time point observed.
             # Using the corresponding indices we can then carry out the detrending.
-
             detrended_data = np.zeros((number_of_observations, number_of_cells))
             for i, timepoint1 in enumerate(test_timepoints):
                 for j, timepoint2 in enumerate(observed_timepoints):
@@ -407,6 +442,11 @@ class Detrending():
 
             number_of_cells = 1
             number_of_observations = len(data_to_detrend)
+            # Include optimisation step of parameters.
+            print(observed_timepoints, "obs timepoints")
+            print(observed_cell, "obs cell")
+            self.alpha, self.variance, self.noise = self.optimise_SE_trace(self.alpha, self.variance, self.noise,
+                                                                           observed_timepoints, observed_cell)
             fits = self.fit_SE(observed_timepoints, data_to_detrend, test_timepoints, 1, cholesky_decompose)[:,1]
             detrended_data = np.zeros((number_of_observations, number_of_cells))
             for i, timepoint1 in enumerate(test_timepoints):
@@ -463,6 +503,11 @@ class Detrending():
                 number_of_observations = len(data_to_detrend[cell]) # Each cell has a different number of observations.
                 observed_cell = data_to_detrend[cell]
                 observed_timepoints_per_cell = observed_timepoints[0:number_of_observations]
+
+                # include optimisation of hyperparameters
+                self.alpha, self.variance, self.noise = self.optimise_SE_trace(self.alpha, self.variance, self.noise,
+                                                                               observed_timepoints_per_cell, observed_cell)
+
                 # I want to ideally have the fit to be evaluated at more points than my actual observations.
                 # I can then detrend and hopefully get my timepoints to match up.
                 fits.append(self.fit_SE(observed_timepoints_per_cell, observed_cell, test_timepoints, 1, cholesky_decompose)[:,1])
@@ -488,6 +533,8 @@ class Detrending():
             observed_cell = data_to_detrend[0]
             number_of_observations = len(observed_cell)
             observed_timepoints = observed_timepoints[0:number_of_observations]
+            self.alpha, self.variance, self.noise = self.optimise_SE_trace(self.alpha, self.variance, self.noise,
+                                                                           observed_timepoints, observed_cell)
             fits = self.fit_SE(observed_timepoints, observed_cell, test_timepoints, 1, cholesky_decompose)[:,1]
             detrended = np.zeros(number_of_observations)
             detrended_data = []
@@ -653,49 +700,3 @@ class Data_Export():
         dataframe = pd.DataFrame(data = contigency_table, index = row_names, columns = column_names)
 
         return dataframe
-
-
-
-
-
-##### TESTING DETREND_DATA
-
-### Data Set Up
-
-#X = np.linspace(0, 100, 500)
-#Y_m = np.sin(0.5*X)
-#Y = Y_m + np.random.normal(0, 0.5, len(Y_m)) # + noise
-#observed_id = np.arange(0, 500, 10)
-#observed_cell_x = X[observed_id]
-#observed_cell_y = Y[observed_id]
-
-#observed_cell_y = np.array([observed_cell_y]).T
-#observed_cell_x = np.array([observed_cell_x]).T
-#data = np.hstack((observed_cell_y, observed_cell_y))
-#data = np.hstack((data, observed_cell_y))
-## Make trended data
-#for i in range(50):
-    #data[i,0] = data[i,0] + i*1.1
-
-### Calling Function INPUTS
-
-#test_timepoints= np.linspace(0, 100, 500)
-
-#detrend = Detrending(0.0005, 0.5, 0.0001)
-#visualisation = Visualisation_GP(0.0005, 0.5, 0.5, 0.0001, True, observed_cell_x, observed_cell_y, True)
-#visualisation.gp_se_trace_plot(test_timepoints, number_of_traces = 1)
-#detrended_data = detrend.detrend_data(observed_cell_x, observed_cell_y)
-
-
-
-
-
-
-
-#for cell in range(len(observed_cell_y[0])):
-    #observations = observed_cell_y[:,cell]
-    #detrend.fit_SE(observed_cell_x, observations, 100)
-
-#for cell in range(len(data[0])):
-    #observations = data[:,cell]
-    #print(detrend.fit_SE(observed_cell_x, observations, 100))
