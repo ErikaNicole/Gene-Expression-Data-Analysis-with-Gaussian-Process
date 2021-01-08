@@ -245,13 +245,42 @@ class Detrending():
     # todo : note cholesky decompose false here it was giving errors
     def optimise_SE_trace(self, start_alpha, start_variance, start_noise, observed_timepoints, observed_y):
         """
+        Use starting values from __init__ to optimise the hyper parameters: [alpha_se, variance_se, noise_se] for
+        the GP fitting. Optimisation is done by minimising the negative marginal log likelihood with respect to the
+        Hyper Parameters of the SE function matrix.
 
-        :param start_alpha:
-        :param start_variance:
-        :param start_noise:
-        :param observed_timepoints:
-        :param observed_y:
-        :return:
+        The following bounds on the optimisation routine are used:
+
+            [alpha_se, variance_se, noise_se] = [(1e-10, exp(-4), (1e-10, None), (1e-10, None)]
+
+        This implies variance_se and noise_se are bound to be always positive, whilst alpha_se is bound to be between
+        zero and exp(-4). The choice is made and explained in the docs.
+        In short: we want to detect long term trends, hence we want a fitted function which varies slowly over the interval.
+        Such that we don't mistakenly remove some of the short term oscillations.
+
+        Parameters:
+        ------------
+
+            start_alpha:
+                optimisation starting value for alpha_se
+            start_variance:
+                optimisation starting value for variance_se
+            start_noise:
+                optimisation starting value for noise_se
+            observed_timepoints:
+                The vector of training inputs which have been observed.
+                It takes vector inputs as a number of observations are needed to train the model well.
+                Size of the vector |x| = N.
+            observed_y:
+                The vector of training inputs which have been observed from a single time series.
+                Size of the vector |y| = N.
+
+        Return:
+        ----------
+
+            optim.x : ndarray
+                In order, the optimised hyperparameters are [alpha_se, variance_se, noise_se]
+
         """
 
         # Cannot use same optimisation as other problem since I'm not actually optimising 4 parameters,
