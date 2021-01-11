@@ -94,6 +94,13 @@ print("Starting Model Selection...")
 
 modelselection = model_selection.ModelSelection()
 modelselection_obs = modelselection.model_selection_for_list_new(observed_timepoints = times, observed_cells = detrended_data, number_of_synthetic_cells = 2000, control_q_value = 0.05, initial_guess = [0.001, 0.5, 0.5, 0.5])
+
+# Rename plot;
+os.rename(os.path.join(my_path, "results/LLR_Distribution_Plot.pdf"), os.path.join(my_path, "results/LLR_Distribution_Plot_(Observed Group).pdf"))
+
 modelselection_control = modelselection.model_selection_for_list_new(observed_timepoints = control_times, observed_cells = detrended_control_data, number_of_synthetic_cells = 2000, control_q_value = 0.05, initial_guess = [0.001, 0.5, 0.5, 0.5])
+
+# Rename plot;
+os.rename(os.path.join(my_path, "results/LLR_Distribution_Plot.pdf"), os.path.join(my_path, "results/LLR_Distribution_Plot_(Control Group).pdf"))
 
 print("... Success!!!!!")

@@ -268,6 +268,7 @@ class ModelSelection():
         plt.xlim([min_LLR - 1, max_LLR + 1])
         plt.scatter(results[0,0], results[1,0], color = 'red')
         plt.plot(tuning_parameters, pi_0, 'o', x_test, y_test, '-')
+        Fig.savefig(os.path.join(my_path, "results/tuning_parameter_vs_pi_0.pdf"))
 
         pi0_guess = y_test[0]
         # This corresponds to the moment in which, in the paper,

@@ -505,7 +505,7 @@ class Visualisation_ModelSelection():
         ax[1].set(title = "Synthetic LLRs Distribution", ylabel = "Frequency", xlabel = "LLR")
         Plot.savefig(os.path.join(my_path, "results/LLR_Distribution_Plot.pdf"))
 
-        return Plot
+        return
 
     def LLR_distribution_plot_with_control(self, control_LLRs, observed_LLRs, synthetic_LLRs):
         """
@@ -590,7 +590,7 @@ class Visualisation_ModelSelection():
         plt.title("Q-Value Distribution depending on different threshold values")
         Fig.savefig(os.path.join(my_path, "results/q_values_plot.pdf"))
 
-        return Fig
+        return
 
 class Visualisation_DataPrep():
 
