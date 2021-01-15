@@ -374,10 +374,10 @@ class ModelSelection():
 
         # Step 3.
         pi0 = self.distribution_of_proportion_of_non_osc_cells(LLRs, number_of_observed_cells, number_of_synthetic_cells)
-        pi0_est = self.estimation_of_proportion_of_non_osc_cells(LLRs, pi0)
+        pi0Plot, pi0_est = self.estimation_of_proportion_of_non_osc_cells(LLRs, pi0)
 
         # Step 4.
-        q_est = self.estimation_of_q_values(LLRs, pi0_est[1])
+        q_est = self.estimation_of_q_values(LLRs, pi0_est)
 
         # Optional: Q_values Plot
         QValuesPlot = self.visualisation.q_values_plot(LLRs[0], q_est, control_q_value)
@@ -392,7 +392,7 @@ class ModelSelection():
         print("With a control q-value of", control_q_value, ",", passed, "out of", number_of_observed_cells,
               "cells from the data exceed the LLR threshold and are classified as oscillatory")
 
-        return LLRs, optim_parameters, q_values, DistributionPlot, QValuesPlot
+        return LLRs, optim_parameters, q_values, DistributionPlot, pi0Plot, QValuesPlot
 
     def model_selection_with_control(self, observed_timepoints, control_cells, observed_cells, number_of_synthetic_cells, control_q_value = 0.05, initial_guess = [0.001, 0.0, 0.001, 0.001]):
         """
@@ -1023,9 +1023,7 @@ class ModelSelection():
 
         # Step 3.
         pi0 = self.distribution_of_proportion_of_non_osc_cells(LLRs, number_of_observed_cells, number_of_synthetic_cells)
-        pi0_est = self.estimation_of_proportion_of_non_osc_cells(LLRs, pi0)
-        Pi0Plot = pi0_est[0]
-        pi0_est = pi0_est[1]
+        Pi0Plot, pi0_est = self.estimation_of_proportion_of_non_osc_cells(LLRs, pi0)
 
         # Step 4.
         q_est = self.estimation_of_q_values(LLRs, pi0_est)

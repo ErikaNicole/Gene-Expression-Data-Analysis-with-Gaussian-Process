@@ -503,7 +503,6 @@ class Visualisation_ModelSelection():
         # 2rd plot of null hypothesis - population of non-oscillating cells
         ax[1].hist(synthetic_LLRs)
         ax[1].set(title = "Synthetic LLRs Distribution", ylabel = "Frequency", xlabel = "LLR")
-        Plot.savefig(os.path.join(my_path, "results/LLR_Distribution_Plot.pdf"))
 
         return Plot
 
@@ -588,7 +587,6 @@ class Visualisation_ModelSelection():
         plt.axhline(control_q_value, color = 'red')
         plt.ylim([-0.1,1])
         plt.title("Q-Value Distribution depending on different threshold values")
-        Fig.savefig(os.path.join(my_path, "results/q_values_plot.pdf"))
 
         return Fig
 
