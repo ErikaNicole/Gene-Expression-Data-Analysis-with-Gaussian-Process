@@ -62,7 +62,7 @@ class Visualisation_GP():
 
                 confidence_bounds = 1.96 * np.sqrt(np.diag(abs(self.GP.cov_matrix_ou(timepoints, timepoints))))
 
-                Fig = plt.figure('OU Prior Trace(s) Plot')
+                Fig = plt.figure('OU Prior Trace(s) Plot', figsize = (10, 8))
                 plt.title('Plot of OU Prior Trace(s)')
                 plt.ylabel('Expression')
                 plt.xlabel('Time')
@@ -78,7 +78,7 @@ class Visualisation_GP():
                 confidence_bounds = trace[1]
                 trace = trace[0]
 
-                Fig = plt.figure('OU Posterior Trace(s) Plot')
+                Fig = plt.figure('OU Posterior Trace(s) Plot', figsize = (10, 8))
                 plt.title('Plot of OU Posterior Trace(s)')
                 plt.ylabel('Expression')
                 plt.xlabel('Time')
@@ -128,7 +128,7 @@ class Visualisation_GP():
         posterior_confidence_bounds = posterior_trace[1]
         posterior_trace = posterior_trace[0]
 
-        Fig, ax = plt.subplots(ncols=2, nrows=1, constrained_layout=True, sharey= True)
+        Fig, ax = plt.subplots(ncols=2, nrows=1, constrained_layout=True, sharey= True, figsize = (14, 8))
         #1st Plot
         ax[0].plot(timepoints, np.zeros(len(timepoints)), color = 'black', ls ='--')
         for i in range(1,number_of_traces + 1):
@@ -256,7 +256,7 @@ class Visualisation_GP():
 
                 confidence_bounds = 1.96 * np.sqrt(np.diag(abs(self.prep.cov_matrix_SE(timepoints, timepoints))))
 
-                Fig = plt.figure('SE Prior Trace(s) Plot')
+                Fig = plt.figure('SE Prior Trace(s) Plot', figsize = (10, 8))
                 plt.title('Plot of SE Prior Trace(s)')
                 plt.ylabel('Expression')
                 plt.xlabel('Time')
@@ -268,7 +268,7 @@ class Visualisation_GP():
         else:
                 trace = self.prep.fit_SE(self.observed_timepoints, self.observed_y, test_timepoints, number_of_traces, self.cholesky_decompose)
 
-                Fig = plt.figure('SE Posterior Trace(s) Plot')
+                Fig = plt.figure('SE Posterior Trace(s) Plot', figsize = (10, 8))
                 plt.title('Plot of SE Posterior Trace(s)')
                 plt.ylabel('Expression')
                 plt.xlabel('Time')
@@ -333,7 +333,7 @@ class Visualisation_Optimiser():
         maximum_marginal_llik = -results.fun
 
         # 1. Create Grid of Subplots
-        Fig, ax = plt.subplots(ncols=2, nrows=2, constrained_layout=True)
+        Fig, ax = plt.subplots(ncols=2, nrows=2, constrained_layout=True, figsize = (12, 10))
         Fig.suptitle('Density Plots of Optimized Hyper Parameters with respect to Log Marginal Likelihood', fontsize=12)
 
         # 2. Specify each Ax Contents
@@ -456,7 +456,7 @@ class Visualisation_Optimiser():
         else:
             raise(ValueError("The given combination of hyperparameters is not valid, pick one of the options listed"))
 
-        Fig = plt.figure()
+        Fig = plt.figure(figsize = (12, 8))
         ax = plt.axes(projection='3d')
         ax.contour3D(X, Y, Z, 50, cmap='binary')
         ax.set_xlabel(hyperparameters[0])
